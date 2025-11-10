@@ -208,7 +208,8 @@ class SetRgbaOperator(bpy.types.Operator):
         physics_frame_index = next((i for i, frame in enumerate(frames) if frame.name == PHYSICAL_FRAME_NAME), -1)
 
         # 获取源模型胸部饰品信息
-        accessory_breast_rel_map, kept_joints = get_accessory_info(breast_bones, breast_names, joint_parent, rb_parent)
+        accessory_breast_rel_map, kept_joints = get_accessory_info(armature, breast_bones, breast_names, joint_parent,
+                                                                   rb_parent)
 
         # 导入RGBA胸部
         rgba_file_l = os.path.join(os.path.dirname(os.path.dirname(__file__)), "externals", "RGBA_L.pmx")
@@ -679,43 +680,32 @@ def repair_accessory(root, accessory_breast_rel_map, kept_joints):
             rbc.object2 = target_rb
 
 
-def get_accessory_info(breast_bones, breast_names, joint_parent, rb_parent):
+def get_accessory_info(armature, breast_bones, breast_names, joint_parent, rb_parent):
     """
     获取胸部饰品信息，用于后续处理：
         1. 修复骨骼的父子关系
         2. 修复Joint的连接关系
     """
-    # 胸饰品指胸骨的子骨骼，例如胸飾、胸坠、胸結等（bbc → breast_bone_child）
-    # 记录胸饰品骨骼和胸骨骼的关系，供后续修复骨骼父子级用
+    # 胸饰品指胸骨的子骨骼，例如胸飾、胸坠、胸結等（bbc 即 breast_bone_child）
+    # 记录胸饰品根骨骼和胸部骨骼的关系，供后续修复骨骼父子级用
     accessory_breast_rel_map = {}
     for bb in breast_bones:
         for bbc in bb.children:
             if bbc.name not in breast_names and not is_dummy_bone(bbc.name):
                 accessory_breast_rel_map[bbc.name] = bb.name
 
-    # 记录胸饰品刚体与胸骨刚体
-    def collect_accessory_bones(bone, breast_names, accessory_bones):
-        """递归获取胸饰品骨骼"""
-        for child in bone.children:
-            if child.name not in breast_names:
-                accessory_bones.append(child.name)
-            collect_accessory_bones(child, breast_names, accessory_bones)
-
-    accessory_bones = []
-    for bb in breast_bones:
-        collect_accessory_bones(bb, breast_names, accessory_bones)
-    accessory_rb_names = []
-    for rb in rb_parent.children:
-        if rb.mmd_rigid.bone in accessory_bones:
-            accessory_rb_names.append(rb.name)
+    # 获取胸部刚体名称列表与胸饰品刚体名称列表
     breast_rb_names = [rb.name for rb in rb_parent.children if rb.mmd_rigid.bone in breast_names]
+    accessory_bone_names = expand_accessory_bone_names(armature, accessory_breast_rel_map)
+    accessory_rb_names = [rb.name for rb in rb_parent.children if rb.mmd_rigid.bone in accessory_bone_names]
 
-    # 记录链接胸饰品和胸的Joint，避免后续被删除，供后续修复Joint连接用
+    # 记录链接胸和胸饰品的Joint，避免后续被删除，供后续修复Joint连接用
     kept_joints = {}
     for joint in joint_parent.children:
         object1 = joint.rigid_body_constraint.object1
         object2 = joint.rigid_body_constraint.object2
 
+        # todo 根据实际位置确定左右
         if object1.name in accessory_rb_names and object2.name in breast_rb_names:
             kept_joints[joint.name] = "L" if "左" in object2.name else "R"
         elif object1.name in breast_rb_names and object2.name in accessory_rb_names:
