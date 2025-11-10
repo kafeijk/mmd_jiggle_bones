@@ -1,9 +1,11 @@
 import math
 import os
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from datetime import datetime
 
+import bmesh
 import mathutils
+from mathutils.bvhtree import BVHTree
 
 from ..utils import *
 
@@ -11,6 +13,7 @@ BREAST_BL_NAME_L = "胸.L"
 BREAST_BL_NAME_R = "胸.R"
 BREAST_JP_NAME_L = "左胸"
 BREAST_JP_NAME_R = "右胸"
+UPPER_BODY_NAME = "上半身"
 UPPER_BODY2_NAME = "上半身2"
 # RGBA胸部刚体名称
 RGBA_RB_NAMES = ['右胸_後', '右胸_回転', '右胸_前', '右胸_前後', '右胸',
@@ -25,7 +28,7 @@ RGBA_JOINT_NAMES = [
 # 双臂刚体名称
 LIMB_RB_NAMES = ["右手首", "右手", "右ひじ", "右腕", "左手首", "左手", "左ひじ", "左腕"]
 # 四肢 + 躯干 主体刚体碰撞群组  PE 1~16 MMD Tools 0~15
-LIMB_RB_GROUP = 0
+LIMB_RB_GROUP = 13
 # 胸部碰撞群组
 BREAST_RB_GROUP = 14  # 15-1
 
@@ -33,9 +36,9 @@ RB_JOINT_PREFIX_REGEXP = re.compile(r'(?P<prefix>[0-9A-Z]{3}_)(?P<name>.*)')
 
 BREAST_BONE_PATTERN = re.compile(
     r'^胸'  # 开头必须是“胸”
-    r'([_上下前後先間親亲変形回転支え基W]*)'
+    r'([_上下前後先間親亲変形回転支え基W筋]*)'
     r'([0-9０-９])?'  # 可选的单独数字（半角或全角）
-    r'(錘)?'
+    r'([錘先D])?'
     r'(\.\d{3})?'  # 可选的前置序号
     r'(\.[LR])?'  # 可选的左右标识
     r'(\.\d{3})?'  # 可选的后置序号
@@ -44,15 +47,30 @@ BREAST_BONE_PATTERN = re.compile(
 
 BREAST_RB_PATTERN = re.compile(
     r'^([_左右胸]*)'  # 开头必须是“胸”
-    r'([_上下前後先間親亲変形回転支え基W]*)'
+    r'([_上下前後先間親亲変形回転支え基W筋]*)'
     r'([0-9０-９])?'  # 可选的单独数字（半角或全角）
-    r'(錘)?'
+    r'([錘先D])?'
     r'(\.\d{3})?'  # 可选的前置序号
     r'(\.[LR])?'  # 可选的左右标识
     r'(\.\d{3})?'  # 可选的后置序号
     r'$'
 )
 PHYSICAL_FRAME_NAME = "物理"
+COLLISION_MAP = {
+    "DEFAULT": "默认",
+    "NO_COLLISION": "无碰撞",
+}
+
+
+# 少女前线2单独校验
+def check_girlsfrontline_breast_bones_and_rbs(b_name):
+    if "chest_r" in b_name.lower():
+        return True
+    if "chest_l" in b_name.lower():
+        return True
+    if "bone" in b_name.lower() and "ches" in b_name.lower():
+        return True
+    return False
 
 
 def get_mmd_info(root):
@@ -91,40 +109,68 @@ class SetRgbaOperator(bpy.types.Operator):
         props = scene.mmd_jiggle_tools_set_rgba
         if self.check_props(props) is False:
             return
+        self.batch_process(self.set_rgba, props)
 
-        self.set_rgba(props)
+    def batch_process(self, func, props):
+        batch = props.batch
+        abs_path = bpy.path.abspath(batch.directory)
+        start_time = time.time()
+
+        # 搜索模型文件
+        file_list = recursive_search(batch.directory, batch.threshold, batch.conflict_strategy, props)
+        file_count = len(file_list)
+        name_msg_map = OrderedDict()
+
+        for index, filepath in enumerate(file_list):
+            file_start = time.time()
+            file_name = os.path.basename(filepath)
+
+            name, status, msg = func(props, f_path=filepath)
+            if status == "ERROR":
+                name_msg_map[name] = msg
+
+            elapsed_file = time.time() - file_start
+            elapsed_total = time.time() - start_time
+
+            print(f'文件“{file_name}”处理完成，进度{index + 1}/{file_count}'
+                  f'(当前耗时{elapsed_file:.2f}s，总耗时{elapsed_total:.2f}s)')
+
+        # 计算总耗时
+        total_time = time.time() - start_time
+
+        # 处理结果汇总
+        if name_msg_map:
+            combined_msg = "\n".join(f"{name} - {msg}" for name, msg in name_msg_map.items())
+            print(combined_msg)
+            self.report({'WARNING'}, f"{combined_msg}")
+            self.report(
+                {'WARNING'},
+                f"{file_count - len(name_msg_map)}/{file_count} 个文件已处理完成 "
+                f"(总耗时 {total_time:.2f}s)。点击查看详细报告 ↑↑↑"
+            )
+        else:
+            self.report({'INFO'}, f'目录“{abs_path}”处理完成（总耗时{total_time:.2f}s）')
 
     def check_props(self, props):
+        batch = props.batch
+
         if not is_mmd_tools_enabled():
-            self.report(type={'ERROR'}, message=f'MMD Tools plugin not enabled!')
+            self.report({'ERROR'}, "MMD Tools plugin is not enabled!")
             return False
-        filepath = props.filepath
-        if not filepath:
-            self.report({'ERROR'}, 'File path is empty!')
+
+        if not check_batch_props(self, batch):
             return False
-        abs_path = bpy.path.abspath(filepath)
-        if os.path.isdir(abs_path):
-            self.report({'ERROR'}, 'File path is a directory!')
-            return False
-        if not os.path.exists(abs_path):
-            self.report({'ERROR'}, f'File not found: {abs_path}')
-            return False
-        valid_exts = ['.pmx', '.pmd']
-        ext = os.path.splitext(abs_path)[1].lower()
-        if ext not in valid_exts:
-            self.report({'ERROR'}, f'Unsupported file type: {ext}. Expected one of: {valid_exts}')
-            return False
+
         return True
 
-    def set_rgba(self, props):
+    def set_rgba(self, props, f_path=None):
         # todo おっぱい調整 算不算胸部？构不成影响，暂且不算
         # todo 上半身2创建追踪骨骼的刚体，碰撞组为0，和14不碰撞，和其它都碰撞 防止头发穿模，如Tda HMS illustrious，正常来说，模型本身会附带上半身2刚体，以应对领带头发等问题，暂不处理
-        # todo 如何处理胸部与领带的碰撞设置
-        # todo 测试
-        # 截断factor，保留两位小数
-        factor = int(props.factor * 100) / 100
-        rb_scale_factor = int(props.rb_scale_factor * 100) / 100
-        filepath = props.filepath
+        # 保留两位小数（截断）
+        factor = round_to_two_decimals(props.factor)
+        rb_scale_factor = round_to_two_decimals(props.rb_scale_factor)
+        filepath = f_path
+        collision = props.collision
 
         # 防止MMD Tools插件的导入Bug，这里需将当前帧调整为0或1
         bpy.context.scene.frame_current = 0
@@ -137,12 +183,17 @@ class SetRgbaOperator(bpy.types.Operator):
         armature, objs, joint_parent, rb_parent = get_mmd_info(root)
         obj = objs[0]
 
+        # 获取源模型名称
+        abs_path = bpy.path.abspath(filepath)
+        file_dir = os.path.dirname(bpy.path.abspath(filepath))
+        file_name = os.path.basename(abs_path)
+        name, ext = os.path.splitext(file_name)
+
         # 获取源模型“胸”骨骼列表
         breast_bones = get_breast_bones(root)
         if not breast_bones:
             clean_tmp_collection()
-            self.report(type={'ERROR'}, message=f'源模型中未找到胸部骨骼')
-            return
+            return name, "ERROR", "源模型中未找到胸部骨骼"
         breast_names = [b.name for b in breast_bones]
 
         # 筛选源模型“胸”骨骼中的水平骨骼，用于计算位置
@@ -152,14 +203,12 @@ class SetRgbaOperator(bpy.types.Operator):
         influenced_verts = get_vertices_influenced_by_bones(obj, [b.name for b in breast_bones], threshold)
         if not influenced_verts:
             clean_tmp_collection()
-            self.report(type={'ERROR'}, message=f'源模型中胸部顶点权重均小于{threshold}，无法获取有效胸部网格范围')
-            return
+            return name, "ERROR", f"源模型中胸部顶点权重均小于{threshold}，无法获取有效胸部网格范围"
 
         # 校验源模型是否存在名为“上半身2”的骨骼
         if not any(pb.name == UPPER_BODY2_NAME for pb in armature.pose.bones):
             clean_tmp_collection()
-            self.report({'ERROR'}, f'源模型中未找到名称为“{UPPER_BODY2_NAME}”的骨骼')
-            return
+            return name, "ERROR", f"源模型中未找到名称为“{UPPER_BODY2_NAME}”的骨骼"
 
         # 获取源模型“物理”显示枠索引
         physical_frame_index = -1
@@ -208,7 +257,6 @@ class SetRgbaOperator(bpy.types.Operator):
         )
         apply_location_diff(root_l, armature_l, bone_l, dummy_tail_lo_l, root_r, armature_r, bone_r, dummy_tail_lo_r,
                             rb_parent_l)
-
         # 删除源模型胸部骨骼及对应的刚体Joint，防止刚体Joint重名
         b_names_l, b_names_r = remove_breast_bones(root, armature, rb_parent, kept_joints)
 
@@ -230,7 +278,7 @@ class SetRgbaOperator(bpy.types.Operator):
         # 将胸部刚体绑定到源模型的身体骨骼
         bind_rb_to_body(rb_parent)
         # 设置胸部刚体碰撞组并对胸部刚体及胸部Joint重排序
-        set_collision_and_resort(root, accessory_breast_rel_map)
+        set_collision_and_resort(root, accessory_breast_rel_map, collision)
         # 恢复“物理”显示枠位置
         if physical_frame_index != -1:
             frames.move(frames.find(PHYSICAL_FRAME_NAME), physical_frame_index)
@@ -247,19 +295,16 @@ class SetRgbaOperator(bpy.types.Operator):
         # 导出模型
         deselect_all_objects()
         select_and_activate(root)
-        abs_path = bpy.path.abspath(filepath)
-        file_dir = os.path.dirname(bpy.path.abspath(filepath))
-        file_name = os.path.basename(abs_path)
-        name, ext = os.path.splitext(file_name)
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         new_filepath = os.path.join(file_dir,
-                                    f"{name}_RGBA_{format_factor(factor)}_{format_factor(rb_scale_factor)}_{timestamp}.pmx")
+                                    f"{name}_RGBA_{format_factor(factor)}_{format_factor(rb_scale_factor)}_{COLLISION_MAP.get(props.collision)}_{timestamp}.pmx")
+
         export_pmx(new_filepath)
 
         # 删除临时集合内所有物体
         clean_tmp_collection()
 
-        self.report({'INFO'}, f"执行完成，模型文件地址：{new_filepath}")
+        return name, "INFO", f"执行完成，模型文件地址：{new_filepath}"
 
 
 def get_rb_bone_rel_map(rb_parent):
@@ -279,8 +324,15 @@ def get_rb_bone_rel_map(rb_parent):
     return rb_bone_map, rbn_rb_map, bone_rbs_map
 
 
-def set_collision_and_resort(root, accessory_breast_rel_map):
-    """设置刚体碰撞组并对RGBA胸部刚体及Joint重排序"""
+def set_collision_and_resort(root, accessory_breast_rel_map, collision):
+    """
+    设置刚体碰撞组并对RGBA胸部刚体及Joint重排序
+    创建“双臂衝突刚体”，仅对“胸部刚体”碰撞，“胸部刚体”仅对“双臂衝突刚体”碰撞
+    如果其它物理刚体的碰撞组与“胸部刚体”相同，且碰巧与“双臂衝突刚体”发生碰撞，也无所谓；如果其它物理刚体的碰撞组与“双臂衝突刚体”相同，且碰巧与“胸部刚体”发生碰撞，有影响概率较低
+    创建“胸部衝突刚体”，仅对物理刚体碰撞，物理刚体是否对“胸部衝突刚体”碰撞，取决于原本设置，为了尽可能减少对碰撞组的占用，“胸部衝突刚体”的碰撞组与“胸部刚体”相同
+    胸部首个子骨对应的刚体如果为“物理+骨骼”类型，则改为追踪骨骼，且不与胸部碰撞，如乱破
+    胸部子孙骨和胸部如果有碰撞且穿模，设置为非碰撞，如朱鸢
+    """
     armature, objs, joint_parent, rb_parent = get_mmd_info(root)
     rb_bone_map, rbn_rb_map, bone_rbs_map = get_rb_bone_rel_map(rb_parent)
     rigid_bodies = rb_parent.children
@@ -288,96 +340,114 @@ def set_collision_and_resort(root, accessory_breast_rel_map):
     physical_bone_names = set(physical_bone_names)
     bones = armature.data.bones
 
-    # 碰撞组集合
-    cgn_set = set()
-    # 设置物理刚体与胸部碰撞
-    for rb in rigid_bodies:
-        # 0:骨骼 1:物理 2:物理+骨骼
-        if rb.mmd_rigid.type not in ('1', '2'):
-            continue
-        cgn = rb.mmd_rigid.collision_group_number
-        if cgn == BREAST_RB_GROUP:
-            continue
-        cgn_set.add(cgn)
-        rb.mmd_rigid.collision_group_mask[BREAST_RB_GROUP] = False
-
-    # 设置胸部与物理刚体碰撞，设置胸部与四肢躯干碰撞（实际参与碰撞的是四肢躯干衝突刚体，如两臂衝突刚体）
+    # 不论碰撞策略如何设置，第一步均先将胸部物理碰撞关闭
     for rb in rigid_bodies:
         if rb.mmd_rigid.name_j not in RGBA_RB_NAMES:
             continue
-        # 只有左胸右胸参与刚体碰撞
-        if rb.mmd_rigid.name_j in [BREAST_JP_NAME_L, BREAST_JP_NAME_R]:
-            for cgn in cgn_set:
-                rb.mmd_rigid.collision_group_mask[LIMB_RB_GROUP] = False
-                rb.mmd_rigid.collision_group_mask[cgn] = False
-        else:
-            # 其余胸部刚体均不参与碰撞
-            for i in range(16):
-                rb.mmd_rigid.collision_group_mask[i] = True
+        for i in range(16):
+            rb.mmd_rigid.collision_group_mask[i] = True
 
-    # 设置四肢躯干不参与胸部碰撞（实际参与碰撞的是两臂衝突刚体，如两臂衝突刚体）
-    for rb in rigid_bodies:
-        if rb.mmd_rigid.type in ('1', '2'):
-            continue
-        cgn = rb.mmd_rigid.collision_group_number
-        if cgn == LIMB_RB_GROUP:
+    # 创建“双臂衝突刚体”，仅对“胸部刚体”碰撞
+    limb_rb_map = {}
+    if collision in ["DEFAULT"]:
+        # 少前2 设置名称含“上半身”的刚体不与胸部碰撞，可能会影响其它“物理刚体”的碰撞，如头发，但几率较低
+        for rb in rigid_bodies:
+            if UPPER_BODY_NAME in rb.mmd_rigid.name_j:
+                rb.mmd_rigid.collision_group_mask[BREAST_RB_GROUP] = True
+
+        # 创建两臂衝突刚体，并设置两臂衝突刚体与胸部碰撞，且仅与胸部碰撞
+        for rb in rigid_bodies:
+            # 仅追踪骨骼类型
+            if rb.mmd_rigid.type in ('1', '2'):
+                continue
+            # 避免重复创建
+            name_j = rb.mmd_rigid.name_j
+            if name_j in limb_rb_map:
+                continue
+            # 仅创建两臂衝突刚体
+            if name_j not in LIMB_RB_NAMES:
+                continue
+            crb = copy_rb(rb)
+            limb_rb_map[name_j] = crb
+            crb_name = f"{name_j}衝突"
+            crb.mmd_rigid.name_j = crb_name
+            crb.name = f"AAA_{crb_name}"
+            crb.mmd_rigid.collision_group_number = LIMB_RB_GROUP
+            # 仅与胸部碰撞
+            for i in range(16):
+                if i == BREAST_RB_GROUP:
+                    crb.mmd_rigid.collision_group_mask[i] = False
+                else:
+                    crb.mmd_rigid.collision_group_mask[i] = True
+
+        # “胸部刚体”仅对“双臂衝突刚体”碰撞
+        for rb in rigid_bodies:
+            if rb.mmd_rigid.name_j in [BREAST_JP_NAME_L, BREAST_JP_NAME_R]:
+                rb.mmd_rigid.collision_group_mask[LIMB_RB_GROUP] = False
+
+        # 获取物理刚体所在碰撞组并去重
+        # 物理刚体是否对“胸部衝突刚体”碰撞，取决于原本设置，而非全部设置为碰撞以防止冲突。案例如翡翠
+        # 为了尽可能减少对碰撞组的占用，“胸部衝突刚体”的碰撞组与“胸部刚体”相同
+        cgn_set = set()
+        for rb in rigid_bodies:
+            # 0:骨骼 1:物理 2:物理+骨骼
+            if rb.mmd_rigid.type not in ('1', '2'):
+                continue
+            cgn = rb.mmd_rigid.collision_group_number
+            if cgn == BREAST_RB_GROUP:
+                continue
+            cgn_set.add(cgn)
+
+        # 创建胸部碰撞刚体
+        breast_collision_rb_map = {}
+        for rb in rigid_bodies:
+            # 仅追踪骨骼类型
+            if rb.mmd_rigid.type not in ('1', '2'):
+                continue
+            # 避免重复创建
+            name_j = rb.mmd_rigid.name_j
+            if name_j in breast_collision_rb_map:
+                continue
+            # 仅创建两臂衝突刚体
+            if name_j not in [BREAST_JP_NAME_L, BREAST_JP_NAME_R]:
+                continue
+            crb = copy_rb(rb)
+            breast_collision_rb_map[name_j] = crb
+            crb_name = f"{name_j}衝突"
+            crb.mmd_rigid.name_j = crb_name
+            crb.name = f"AAA_{crb_name}"
+            crb.mmd_rigid.type = "0"
+            crb.mmd_rigid.collision_group_number = BREAST_RB_GROUP
+            # 与物理部位碰撞
+            for i in cgn_set:
+                crb.mmd_rigid.collision_group_mask[i] = False
+
+        # 胸部首个子骨对应的刚体如果为“物理+骨骼”类型，则改为追踪骨骼，如乱破
+        for rb in rigid_bodies:
+            if rb.mmd_rigid.type != '2':  # 限定 物理+骨骼 类型
+                continue
+            if rb.mmd_rigid.bone not in accessory_breast_rel_map:
+                continue
+            rb.mmd_rigid.type = '0'
             rb.mmd_rigid.collision_group_mask[BREAST_RB_GROUP] = True
 
-    # 创建两臂衝突刚体，并设置两臂衝突刚体与胸部碰撞，且仅与胸部碰撞
-    limb_rb_map = {}
-    for rb in rigid_bodies:
-        # 仅追踪骨骼类型
-        if rb.mmd_rigid.type in ('1', '2'):
-            continue
-        # 避免重复创建
-        name_j = rb.mmd_rigid.name_j
-        if name_j in limb_rb_map:
-            continue
-        # 仅创建两臂衝突刚体
-        if name_j not in LIMB_RB_NAMES:
-            continue
-        crb = copy_rb(rb)
-        limb_rb_map[name_j] = crb
-        crb_name = f"{name_j}衝突"
-        crb.mmd_rigid.name_j = crb_name
-        crb.name = f"AAA_{crb_name}"
-        crb.mmd_rigid.collision_group_number = LIMB_RB_GROUP
-        for i in range(16):
-            if i == BREAST_RB_GROUP:
-                crb.mmd_rigid.collision_group_mask[i] = False
-            else:
-                crb.mmd_rigid.collision_group_mask[i] = True
-
-    # 设置子骨胸饰与胸部不发生碰撞，如乱破
-    accessory_bone_names = expand_accessory_bone_names(armature, accessory_breast_rel_map)
-    for rb in rigid_bodies:
-        if rb.mmd_rigid.type not in ('1', '2'):
-            continue
-        if rb.mmd_rigid.bone not in accessory_bone_names:
-            continue
-        rb.mmd_rigid.collision_group_mask[BREAST_RB_GROUP] = True
-
-    # 若上半身2的物理子骨刚体尺寸大于大于胸部半径，则设置其物理子骨刚体与胸部不发生碰撞，如符玄 待定
-    # physical_bone_chain_map = get_physical_bone_chain_map(armature, physical_bone_names)
-    # breast_rbs = next((rb for rb in rb_parent.children if rb.mmd_rigid.name_j == BREAST_JP_NAME_L), None)
-    # breast_size = breast_rbs.mmd_rigid.size[0]
-    # for root_bone_name, chain in physical_bone_chain_map.items():
-    #     bone = bones.get(root_bone_name)
-    #     if not bone or not bone.parent or bone.parent.name != UPPER_BODY2_NAME:
-    #         continue
-    #     rbs = bone_rbs_map.get(root_bone_name)
-    #     for bn in chain:
-    #         rbs.extend(bone_rbs_map.get(bn))
-    #     for rb in rbs:
-    #         mmd_rigid = rb.mmd_rigid
-    #         size = mmd_rigid.size
-    #         shape = mmd_rigid.shape
-    #         if (
-    #                 (shape == 'SPHERE' and size[0] > breast_size)
-    #                 or (shape == 'BOX' and any(size[i] / 2 > breast_size for i in range(3)))
-    #                 or (shape == 'CAPSULE' and (size[0] > breast_size or size[1] / 2 > breast_size))
-    #         ):
-    #             mmd_rigid.collision_group_mask[BREAST_RB_GROUP] = True
+        # 胸部子级和胸部如果有碰撞且穿模，设置为非碰撞，如朱鸢
+        rgba_rbs = [rb for rb in rigid_bodies if rb.mmd_rigid.name_j in RGBA_RB_NAMES]
+        accessory_bone_names = expand_accessory_bone_names(armature, accessory_breast_rel_map)
+        for rb in rigid_bodies:
+            if rb.mmd_rigid.type not in ('1', '2'):
+                continue
+            if rb.mmd_rigid.name_j in RGBA_RB_NAMES:
+                continue
+            if rb.mmd_rigid.bone not in accessory_bone_names:
+                continue
+            if rb.mmd_rigid.collision_group_mask[BREAST_RB_GROUP] is True:
+                continue
+            for rgba_rb in rgba_rbs:
+                intersection = check_bvh_intersection(rb, rgba_rb)
+                if intersection:
+                    rb.mmd_rigid.collision_group_mask[BREAST_RB_GROUP] = True
+                    break
 
     # 刚体顺序重排序
     breast_rbs = []
@@ -512,8 +582,23 @@ def remove_breast_bones(root, armature, rb_parent, kept_joints):
     # 记录被删除的骨骼属于左侧还是右侧
     breast_bones = get_breast_bones(root)
     breast_names = [b.name for b in breast_bones]
-    b_names_l = [b.name for b in breast_bones if ".L" in b.name and b.name != BREAST_BL_NAME_L]
-    b_names_r = [b.name for b in breast_bones if ".R" in b.name and b.name != BREAST_BL_NAME_R]
+    b_names_l = []
+    b_names_r = []
+
+    deselect_all_objects()
+    select_and_activate(armature)
+    bpy.ops.object.mode_set(mode='EDIT')
+    edit_bones = armature.data.edit_bones
+    for bone in breast_bones:
+        eb = edit_bones.get(bone.name)
+        if not eb:
+            continue
+        # 检查 bone.head 和 bone.tail 的 x 坐标来确定左右
+        if eb.tail.x > 0:
+            b_names_l.append(bone.name)
+        elif eb.tail.x < 0:
+            b_names_r.append(bone.name)
+    bpy.ops.object.mode_set(mode='OBJECT')
 
     # 记录刚体与其关联骨骼的map
     _, _, bone_rbs_map = get_rb_bone_rel_map(rb_parent)
@@ -582,7 +667,6 @@ def repair_accessory(root, accessory_breast_rel_map, kept_joints):
     select_and_activate(armature)
     bpy.ops.object.mode_set(mode='EDIT')
     for bbc_name, bb_name in accessory_breast_rel_map.items():
-        print(f"bbc_name:{bbc_name}")
         if ".L" in bb_name:
             armature.data.edit_bones.get(bbc_name).parent = armature.data.edit_bones.get(BREAST_BL_NAME_L)
         else:
@@ -668,6 +752,10 @@ def get_breast_bones(root):
         match = BREAST_BONE_PATTERN.match(b_name)
         if match:
             breast_bones.append(b)
+            continue
+        match = check_girlsfrontline_breast_bones_and_rbs(b_name)
+        if match:
+            breast_bones.append(b)
 
     return breast_bones
 
@@ -731,6 +819,8 @@ def trans_vg(obj, source_vg_name, target_vg_name, factor=1.0, remove_source=True
     select_and_activate(obj)
     vgs = obj.vertex_groups
 
+    if source_vg_name == target_vg_name:
+        return
     # 源顶点组不存在则跳过
     if source_vg_name not in vgs:
         return
@@ -849,6 +939,11 @@ def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):
         if match and rigidbody.mmd_rigid.type in ('1', '2'):
             bpy.data.objects.remove(rigidbody, do_unlink=True)
             continue
+        match = check_girlsfrontline_breast_bones_and_rbs(name_j)
+        if match and rigidbody.mmd_rigid.type in ('1', '2'):
+            bpy.data.objects.remove(rigidbody, do_unlink=True)
+            continue
+
         # 关联骨骼不存在则删除这个刚体
         if rigidbody.name in rbs_to_remove:
             bpy.data.objects.remove(rigidbody, do_unlink=True)
@@ -898,24 +993,100 @@ def expand_accessory_bone_names(armature, accessory_breast_rel_map):
     return accessory_bone_names
 
 
-def get_physical_bone_chain_map(armature, physical_bone_names):
-    """获取物理骨骼链map"""
-    bones = armature.data.bones
+def recursive_search(directory, threshold, conflict_strategy, props):
+    """寻找指定路径下各个子目录中，时间最新且未进行处理的那个模型"""
+    file_list = []
+    pmx_count = 0
+    for root, dirs, files in os.walk(directory):
+        flag = False
 
-    def collect_children(b):
-        result = []
-        for child in b.children:
-            if child.name in physical_bone_names:
-                result.append(child.name)
-                result.extend(collect_children(child))
-        return result
+        for file in files:
+            if file.endswith('.pmx') or file.endswith('.pmd'):
+                flag = True
+                pmx_count += 1
+        if flag:
+            curr_list = []  # 当前目录下符合条件的文件
+            model_files = [f for f in files
+                           if (f.endswith('.pmx') or f.endswith('.pmd'))
+                           and os.path.getsize(os.path.join(root, f)) > threshold * 1024]  # 排除掉已被排除的文件的影响
 
-    physical_bone_chain_map = {}
-    for pbn in physical_bone_names:
-        bone = bones.get(pbn)
-        if not bone:
-            continue
-        # 如果该骨骼的父骨骼不在 physical_bone_names 中，则它是一个根骨骼
-        if not bone.parent or bone.parent.name not in physical_bone_names:
-            physical_bone_chain_map[pbn] = collect_children(bone)
-    return physical_bone_chain_map
+            # 如果满足条件的model_files有多个，获取全部
+            for model_file in model_files:
+                curr_list.append(model_file)
+
+            pattern = re.compile(
+                r'^(.+)_RGBA_(\d+(?:\.\d+)?)_(\d+(?:\.\d+)?)_(默认|无碰撞)_(\d{14})$'
+            )
+            files_to_remove = []
+            for file in reversed(curr_list):
+                match = pattern.match(os.path.splitext(file)[0])
+                if not match:
+                    continue
+                name, _, _, _, _ = match.groups()
+                new_filename_key = (f"{name}_RGBA_"
+                                    f"{format_factor(round_to_two_decimals(props.factor))}_"
+                                    f"{format_factor(round_to_two_decimals(props.rb_scale_factor))}_"
+                                    f"{COLLISION_MAP.get(props.collision)}")
+                files_to_remove.append(file)
+                if new_filename_key in file:
+                    if conflict_strategy == 'SKIP':
+                        source_file = os.path.join(root, f"{name}.pmx")
+                        if os.path.exists(source_file):
+                            files_to_remove.append(f"{name}.pmx")
+                    else:
+                        pass
+
+            for file in reversed(files_to_remove):
+                if file in curr_list:
+                    curr_list.remove(file)
+
+            for file in curr_list:
+                file_list.append(os.path.join(root, file))
+    msg = bpy.app.translations.pgettext_iface("Actual files to process: {}. Total files: {}, skipped: {}").format(
+        len(file_list), pmx_count, pmx_count - len(file_list)
+    )
+    print(msg)
+    return file_list
+
+
+def check_batch_props(operator, batch):
+    directory = batch.directory
+
+    # 获取目录的全限定路径 这里用blender提供的方法获取，而不是os.path.abspath。没有必要将相对路径转为绝对路径，因为哪种路径是由用户决定的
+    # https://blender.stackexchange.com/questions/217574/how-do-i-display-the-absolute-file-or-directory-path-in-the-ui
+    # 如果用户随意填写，可能会解析成当前blender文件的同级路径，但不影响什么
+    abs_path = bpy.path.abspath(directory)
+    if not os.path.exists(abs_path):
+        operator.report(type={'ERROR'}, message=f'Model directory not found!')
+        return False
+    # 获取目录所在盘符的根路径
+    drive, tail = os.path.splitdrive(abs_path)
+    drive_root = os.path.join(drive, os.sep)
+    # 校验目录是否是盘符根目录
+    if abs_path == drive_root:
+        operator.report(type={'ERROR'}, message=f'Invalid root directory! Change to subfolder.')
+        return False
+
+    return True
+
+
+def round_to_two_decimals(value):
+    """将数值四舍五入到小数点后两位"""
+    return round(value, 2)
+
+
+
+def create_bvh_tree_from_object(obj):
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.transform(obj.matrix_world)
+    bvh = BVHTree.FromBMesh(bm)
+    bm.free()
+    return bvh
+
+
+def check_bvh_intersection(obj_1, obj_2):
+    """https://blender.stackexchange.com/questions/9073/how-to-check-if-two-meshes-intersect-in-python"""
+    bvh1 = create_bvh_tree_from_object(obj_1)
+    bvh2 = create_bvh_tree_from_object(obj_2)
+    return bvh1.overlap(bvh2)

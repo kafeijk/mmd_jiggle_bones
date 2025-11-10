@@ -15,15 +15,19 @@ class RGBAPanel(bpy.types.Panel):
     def draw(self, context):
         scene = context.scene
         props = scene.mmd_jiggle_tools_set_rgba
+        batch = props.batch
 
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
         col = layout.column()
 
-        col.prop(props, "filepath")
+        col.prop(batch, "directory")
         col.prop(props, "factor")
         col.prop(props, "rb_scale_factor")
+        col.prop(props, "collision")
+        col.prop(batch, "threshold")
+        col.prop(batch, "conflict_strategy")
         col.operator(SetRgbaOperator.bl_idname, text=SetRgbaOperator.bl_label)
 
 
