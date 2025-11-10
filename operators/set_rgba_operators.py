@@ -236,17 +236,16 @@ class SetRgbaOperator(bpy.types.Operator):
             raise RuntimeError(f"未在胸部素材中找到{BREAST_BL_NAME_R}骨骼")
 
         # 获取伪胸部骨骼的坐标
-        dummy_head_lo_l, dummy_head_lo_r, dummy_tail_lo_l, dummy_tail_lo_r, x_r, z_r = get_dummy_breast(
+        dummy_head_lo_l, dummy_head_lo_r, dummy_tail_lo_l, dummy_tail_lo_r, x_r, z_r = get_dummy_breast_coords(
             armature, breast_bones, horizontal_bones, influenced_verts, obj)
 
         # 调整并应用RGBA胸部骨骼的缩放、旋转、位置
         apply_scale_diff(rb_parent_l, rb_parent_r, x_r, z_r, rb_scale_factor)
         apply_rotation_diff(
-            root_l, armature_l, bone_l, dummy_head_lo_l, dummy_tail_lo_l, joint_parent_l,
-            root_r, armature_r, bone_r, dummy_head_lo_r, dummy_tail_lo_r, joint_parent_r
-        )
-        apply_location_diff(root_l, armature_l, bone_l, dummy_tail_lo_l, root_r, armature_r, bone_r, dummy_tail_lo_r,
-                            rb_parent_l)
+            root_l, armature_l, bone_l, dummy_head_lo_l, dummy_tail_lo_l,
+            root_r, armature_r, bone_r, dummy_head_lo_r, dummy_tail_lo_r)
+        apply_location_diff(root_l, armature_l, bone_l, dummy_tail_lo_l,
+                            root_r, armature_r, bone_r, dummy_tail_lo_r, rb_parent_l)
         # 删除源模型胸部骨骼及对应的刚体Joint，防止刚体Joint重名
         b_names_l, b_names_r = remove_breast_bones(root, armature, rb_parent, kept_joints)
 
@@ -273,6 +272,7 @@ class SetRgbaOperator(bpy.types.Operator):
         if physics_frame_index != -1:
             frames.move(frames.find(PHYSICAL_FRAME_NAME), physics_frame_index)
         else:
+            # 物理显示枠来源于RGBA素材
             frames.move(frames.find(PHYSICAL_FRAME_NAME), len(root.mmd_root.display_item_frames) - 1)
 
         # 汝窑百分比
@@ -298,7 +298,7 @@ class SetRgbaOperator(bpy.types.Operator):
 
 
 def get_rb_bone_rel_map(rb_parent):
-    rb_bone_map = {}
+    rbn_bone_map = {}
     rbn_rb_map = {}
     bone_rbs_map = defaultdict(list)
 
@@ -308,10 +308,10 @@ def get_rb_bone_rel_map(rb_parent):
 
         bone = rb.mmd_rigid.bone
         if bone:
-            rb_bone_map[name] = bone
+            rbn_bone_map[name] = bone
             bone_rbs_map[bone].append(rb)
 
-    return rb_bone_map, rbn_rb_map, bone_rbs_map
+    return rbn_bone_map, rbn_rb_map, bone_rbs_map
 
 
 def set_collision_and_resort(root, accessory_breast_rel_map, collision):
@@ -324,7 +324,7 @@ def set_collision_and_resort(root, accessory_breast_rel_map, collision):
     胸部子孙骨和胸部如果有碰撞且穿模，设置为非碰撞，如朱鸢
     """
     armature, objs, joint_parent, rb_parent = get_mmd_info(root)
-    rb_bone_map, rbn_rb_map, bone_rbs_map = get_rb_bone_rel_map(rb_parent)
+    rbn_bone_map, rbn_rb_map, bone_rbs_map = get_rb_bone_rel_map(rb_parent)
     rigid_bodies = rb_parent.children
     physical_bone_names = get_physical_bone(root)
     physical_bone_names = set(physical_bone_names)
@@ -491,8 +491,8 @@ def apply_location_diff(root_l, armature_l, bone_l, dummy_tail_lo_l, root_r, arm
     apply_transform_to_objects([root_l, root_r], (True, False, False))
 
 
-def apply_rotation_diff(root_l, armature_l, bone_l, dummy_head_lo_l, dummy_tail_lo_l, joint_parent_l,
-                        root_r, armature_r, bone_r, dummy_head_lo_r, dummy_tail_lo_r, joint_parent_r):
+def apply_rotation_diff(root_l, armature_l, bone_l, dummy_head_lo_l, dummy_tail_lo_l,
+                        root_r, armature_r, bone_r, dummy_head_lo_r, dummy_tail_lo_r):
     """计算RGBA胸部骨骼与伪胸部骨骼的旋转差，调整RGBA胸部骨骼使其旋转与伪胸部骨骼一致（仅在水平面上进行旋转）"""
     # 获取胸部骨骼实际方向
     direction_l = (armature_l.matrix_world @ bone_l.head - armature_l.matrix_world @ bone_l.tail).normalized()
@@ -517,19 +517,14 @@ def apply_rotation_diff(root_l, armature_l, bone_l, dummy_head_lo_l, dummy_tail_
     # 应用旋转
     apply_transform_to_objects([root_l, root_r], (False, True, False))
 
-    # 应用Joint缩放，防止未归1的缩放导致模型在导出时，Joint属性值发生变化
-    apply_transform_to_objects([joint_parent_l, joint_parent_r], (False, False, True))
-    apply_transform_to_objects(joint_parent_l.children + joint_parent_r.children, (False, False, True))
-
 
 def apply_scale_diff(rb_parent_l, rb_parent_r, x_r, z_r, rb_scale_factor):
-    """计算RGBA胸部骨骼与伪胸部骨骼的缩放差，调整RGBA胸部骨骼使其缩放与伪胸部骨骼一致"""
-    # 刚体缩放 如果碰撞了 就缩小点或取消碰撞 如果缺少碰撞就调大些
-    # 计算RGBA胸部刚体半径和一侧胸部最长线段（一半、平均）的缩放差
+    """计算RGBA胸部刚体半径与胸部区域半径的缩放差，并调整RGBA胸部刚体半径"""
     b_rb_l = next(r for r in rb_parent_l.children if r.mmd_rigid.name_j == BREAST_JP_NAME_L)
     b_rb_r = next(r for r in rb_parent_r.children if r.mmd_rigid.name_j == BREAST_JP_NAME_R)
     breast_r = (x_r + z_r) / 2
     r = b_rb_l.mmd_rigid.size[0]
+    # 由于胸部并非完美球形，弥补缩放差后胸部刚体会超出实际胸部区域，所以需乘上rb_scale_factor
     scale_factor = breast_r / r * rb_scale_factor
 
     # 缩放RGBA胸部刚体以适配源模型胸部区域
@@ -537,7 +532,7 @@ def apply_scale_diff(rb_parent_l, rb_parent_r, x_r, z_r, rb_scale_factor):
     b_rb_r.mmd_rigid.size[0] *= scale_factor
 
 
-def get_dummy_breast(armature, breast_bones, horizontal_bones, influenced_verts, obj):
+def get_dummy_breast_coords(armature, breast_bones, horizontal_bones, influenced_verts, obj):
     """获取伪胸部骨骼的坐标"""
     world_cos = [obj.matrix_world @ v.co for v in influenced_verts]
     x_values = [co.x for co in world_cos]
@@ -594,7 +589,7 @@ def remove_breast_bones(root, armature, rb_parent, kept_joints):
     _, _, bone_rbs_map = get_rb_bone_rel_map(rb_parent)
 
     # 少数特殊模型（例如二重螺旋的赛琪）中，即使物理刚体未直接关联骨骼，也可能通过Joint与其他刚体产生关联，因此这种情况是正常的。
-    # 为了避免误删，这里通过记录“被删除的骨骼其关联的刚体有哪些”来实现“删除骨骼时同时删除其对应刚体”的目的，而不是简单地将“未关联骨骼的刚体”全部删除。
+    # 为了避免误删，这里通过记录“被删除的骨骼其关联的刚体有哪些”来实现“删除骨骼时同时删除其对应刚体”的目的，而不是简单地将“未关联到骨骼的刚体”全部删除。
     rbs_to_remove = []
     # 删除冗余骨骼
     deselect_all_objects()
@@ -637,7 +632,7 @@ def join_model(armature, armature_l, armature_r):
 def bind_rb_to_body(rb_parent):
     """
     将胸部刚体绑定到源模型的身体骨骼。
-    由于无法确定源模型是否存在“上半身2”刚体，因此对“上半身2.L”和“上半身2.R”进行冗余处理，并调整其碰撞组和尺寸。
+    暂对“上半身2.L”和“上半身2.R”进行冗余处理，并调整其碰撞组和尺寸。
     """
     for rb in rb_parent.children:
         if rb.mmd_rigid.name_j in ["上半身2_L", "上半身2_R"]:
@@ -769,6 +764,22 @@ def clean_tmp_collection():
         # 删除临时集合
         bpy.data.collections.remove(collection)
 
+    # 删除由导入pmx生成的文本（防止找不到脚本）
+    text_to_delete_list = []
+    for text in bpy.data.texts:
+        text_name = text.name
+        match = TXT_INFO_PATTERN.match(text_name)
+        if match is not None:
+            base_text_name = match.group(1)
+            if match.group(3) is not None:
+                base_text_name = base_text_name + match.group(3)
+            base_text = bpy.data.texts.get(base_text_name, None)
+            if base_text is not None:
+                text_to_delete_list.append(base_text)
+                text_to_delete_list.append(text)
+    for text_to_delete in text_to_delete_list:
+        bpy.data.texts.remove(text_to_delete, do_unlink=True)
+
     # 清理递归未使用数据块
     bpy.ops.outliner.orphans_purge(do_recursive=True)
 
@@ -783,16 +794,7 @@ def apply_transform_to_objects(objects, trans):
 
 
 def trans_vg(obj, source_vg_name, target_vg_name, factor=1.0, remove_source=True):
-    """
-    将顶点权重从源顶点组传递到目标顶点组。
-
-    参数:
-    obj: Blender 对象
-    source_vg_name: 源顶点组名称
-    target_vg_name: 目标顶点组名称
-    factor: 权重传递比例 (0~1)，默认 1.0
-    remove_source: 是否从源顶点组移除对应权重（True: 完全转移, False: 按 factor 减少源权重）
-    """
+    """将顶点权重从源顶点组传递到目标顶点组"""
     deselect_all_objects()
     select_and_activate(obj)
     vgs = obj.vertex_groups
@@ -921,7 +923,6 @@ def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):
         if match and rigidbody.mmd_rigid.type in ('1', '2'):
             bpy.data.objects.remove(rigidbody, do_unlink=True)
             continue
-
         # 关联骨骼不存在则删除这个刚体
         if rigidbody.name in rbs_to_remove:
             bpy.data.objects.remove(rigidbody, do_unlink=True)
