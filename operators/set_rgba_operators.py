@@ -61,6 +61,9 @@ COLLISION_MAP = {
     "NO_COLLISION": "无碰撞",
 }
 
+# 胸部权重阈值
+WEIGHT_THRESHOLD = 0.25
+
 
 # 少女前线2单独校验
 def check_girlsfrontline_breast_bones_and_rbs(b_name):
@@ -95,9 +98,7 @@ class SetRgbaOperator(bpy.types.Operator):
     bl_label = "Execute"  # 显示名称（F3搜索界面，不过貌似需要注册，和panel中显示的内容区别开）
     bl_description = ("RGBA式胸部物理移植\n"
                       "生成的模型无法在Blender、MMM、NexGiMa中直接进行烘焙\n"
-                      "如需烘焙，请使用MMD桥生成带物理的VMD文件，或采用ABC流程\n"
-                      "不建议将已生成的模型再次作为输入进行处理，如需调整，请始终使用原始模型作为输入\n"
-                      "若胸部与胸饰非物理部分穿模，请调小权重比例，或自行修改/隐藏胸饰")
+                      "如需烘焙，请使用MMD桥生成带物理的VMD文件，或采用ABC流程")
     bl_options = {'REGISTER', 'UNDO'}  # 启用撤销功能
 
     def execute(self, context):
@@ -107,66 +108,59 @@ class SetRgbaOperator(bpy.types.Operator):
     def main(self, context):
         scene = context.scene
         props = scene.mmd_jiggle_tools_set_rgba
-        if self.check_props(props) is False:
+        if not self.check_props(props):
             return
         self.batch_process(self.set_rgba, props)
 
     def batch_process(self, func, props):
+        start_time = time.time()
         batch = props.batch
         abs_path = bpy.path.abspath(batch.directory)
-        start_time = time.time()
-
-        # 搜索模型文件
-        file_list = recursive_search(batch.directory, batch.threshold, batch.conflict_strategy, props)
-        file_count = len(file_list)
         name_msg_map = OrderedDict()
 
+        # 搜索模型文件
+        file_list = recursive_search(props)
+        file_count = len(file_list)
+
+        # 批量处理
         for index, filepath in enumerate(file_list):
             file_start = time.time()
-            file_name = os.path.basename(filepath)
-
             name, status, msg = func(props, f_path=filepath)
             if status == "ERROR":
                 name_msg_map[name] = msg
 
+            file_name = os.path.basename(filepath)
             elapsed_file = time.time() - file_start
             elapsed_total = time.time() - start_time
-
             print(f'文件“{file_name}”处理完成，进度{index + 1}/{file_count}'
                   f'(当前耗时{elapsed_file:.2f}s，总耗时{elapsed_total:.2f}s)')
 
-        # 计算总耗时
+        # 汇总结果
         total_time = time.time() - start_time
-
-        # 处理结果汇总
         if name_msg_map:
             combined_msg = "\n".join(f"{name} - {msg}" for name, msg in name_msg_map.items())
+            msg = (f"{file_count - len(name_msg_map)}/{file_count} 个文件已处理完成"
+                   f"（总耗时 {total_time:.2f}s）。点击查看详细报告 ↑↑↑")
             print(combined_msg)
+            print(msg)
             self.report({'WARNING'}, f"{combined_msg}")
-            self.report(
-                {'WARNING'},
-                f"{file_count - len(name_msg_map)}/{file_count} 个文件已处理完成 "
-                f"(总耗时 {total_time:.2f}s)。点击查看详细报告 ↑↑↑"
-            )
+            self.report({'WARNING'}, msg)
         else:
-            self.report({'INFO'}, f'目录“{abs_path}”处理完成（总耗时{total_time:.2f}s）')
+            msg = f"目录“{abs_path}”处理完成（总耗时{total_time:.2f}s）"
+            self.report({'INFO'}, msg)
 
     def check_props(self, props):
-        batch = props.batch
-
         if not is_mmd_tools_enabled():
             self.report({'ERROR'}, "MMD Tools plugin is not enabled!")
             return False
 
+        batch = props.batch
         if not check_batch_props(self, batch):
             return False
 
         return True
 
     def set_rgba(self, props, f_path=None):
-        # todo おっぱい調整 算不算胸部？构不成影响，暂且不算
-        # todo 上半身2创建追踪骨骼的刚体，碰撞组为0，和14不碰撞，和其它都碰撞 防止头发穿模，如Tda HMS illustrious，正常来说，模型本身会附带上半身2刚体，以应对领带头发等问题，暂不处理
-        # 保留两位小数（截断）
         factor = round_to_two_decimals(props.factor)
         rb_scale_factor = round_to_two_decimals(props.rb_scale_factor)
         filepath = f_path
@@ -189,21 +183,20 @@ class SetRgbaOperator(bpy.types.Operator):
         file_name = os.path.basename(abs_path)
         name, ext = os.path.splitext(file_name)
 
-        # 获取源模型“胸”骨骼列表
+        # 获取源模型胸部骨骼列表
         breast_bones = get_breast_bones(root)
         if not breast_bones:
             clean_tmp_collection()
             return name, "ERROR", "源模型中未找到胸部骨骼"
         breast_names = [b.name for b in breast_bones]
 
-        # 筛选源模型“胸”骨骼中的水平骨骼，用于计算位置
-        filtered_bones = filter_bones(armature, breast_bones)
-        # 从源模型胸部顶点中筛选权重大于threshold的顶点，作为胸部网格范围，尽可能排除胸饰或错误权重带来的干扰
-        threshold = 0.25
-        influenced_verts = get_vertices_influenced_by_bones(obj, [b.name for b in breast_bones], threshold)
+        # 筛选源模型胸部骨骼中的水平胸部骨骼，用于计算位置
+        horizontal_bones = filter_horizontal_bones(armature, breast_bones)
+        # 从源模型胸部顶点中筛选权重大于WEIGHT_THRESHOLD的顶点，作为胸部网格范围，用于定位伪胸部骨骼的坐标
+        influenced_verts = get_vertices_influenced_by_bones(obj, [b.name for b in breast_bones])
         if not influenced_verts:
             clean_tmp_collection()
-            return name, "ERROR", f"源模型中胸部顶点权重均小于{threshold}，无法获取有效胸部网格范围"
+            return name, "ERROR", f"源模型中胸部顶点权重均小于{WEIGHT_THRESHOLD}，无法获取有效胸部网格范围"
 
         # 校验源模型是否存在名为“上半身2”的骨骼
         if not any(pb.name == UPPER_BODY2_NAME for pb in armature.pose.bones):
@@ -211,12 +204,8 @@ class SetRgbaOperator(bpy.types.Operator):
             return name, "ERROR", f"源模型中未找到名称为“{UPPER_BODY2_NAME}”的骨骼"
 
         # 获取源模型“物理”显示枠索引
-        physical_frame_index = -1
         frames = root.mmd_root.display_item_frames
-        for i in range(len(frames)):
-            frame = frames[i]
-            if frame.name == PHYSICAL_FRAME_NAME:
-                physical_frame_index = i
+        physics_frame_index = next((i for i, frame in enumerate(frames) if frame.name == PHYSICAL_FRAME_NAME), -1)
 
         # 获取源模型胸部饰品信息
         accessory_breast_rel_map, kept_joints = get_accessory_info(breast_bones, breast_names, joint_parent, rb_parent)
@@ -247,7 +236,7 @@ class SetRgbaOperator(bpy.types.Operator):
 
         # 获取伪胸部骨骼的坐标
         dummy_head_lo_l, dummy_head_lo_r, dummy_tail_lo_l, dummy_tail_lo_r, x_r, z_r = get_dummy_breast(
-            armature, breast_bones, filtered_bones, influenced_verts, obj)
+            armature, breast_bones, horizontal_bones, influenced_verts, obj)
 
         # 调整并应用RGBA胸部骨骼的缩放、旋转、位置
         apply_scale_diff(rb_parent_l, rb_parent_r, x_r, z_r, rb_scale_factor)
@@ -280,8 +269,8 @@ class SetRgbaOperator(bpy.types.Operator):
         # 设置胸部刚体碰撞组并对胸部刚体及胸部Joint重排序
         set_collision_and_resort(root, accessory_breast_rel_map, collision)
         # 恢复“物理”显示枠位置
-        if physical_frame_index != -1:
-            frames.move(frames.find(PHYSICAL_FRAME_NAME), physical_frame_index)
+        if physics_frame_index != -1:
+            frames.move(frames.find(PHYSICAL_FRAME_NAME), physics_frame_index)
         else:
             frames.move(frames.find(PHYSICAL_FRAME_NAME), len(root.mmd_root.display_item_frames) - 1)
 
@@ -547,7 +536,7 @@ def apply_scale_diff(rb_parent_l, rb_parent_r, x_r, z_r, rb_scale_factor):
     b_rb_r.mmd_rigid.size[0] *= scale_factor
 
 
-def get_dummy_breast(armature, breast_bones, filtered_bones, influenced_verts, obj):
+def get_dummy_breast(armature, breast_bones, horizontal_bones, influenced_verts, obj):
     """获取伪胸部骨骼的坐标"""
     world_cos = [obj.matrix_world @ v.co for v in influenced_verts]
     x_values = [co.x for co in world_cos]
@@ -568,8 +557,8 @@ def get_dummy_breast(armature, breast_bones, filtered_bones, influenced_verts, o
     dummy_tail_lo_r = mathutils.Vector((-abs(avg_x), y_min, avg_z))
 
     # 从水平胸部骨骼中，获取head坐标中y值最大的骨骼，并计算伪胸部骨骼head位置
-    if filtered_bones:
-        max_head_bone = max(filtered_bones, key=lambda b: (armature.matrix_world @ b.head_local).y)
+    if horizontal_bones:
+        max_head_bone = max(horizontal_bones, key=lambda b: (armature.matrix_world @ b.head_local).y)
     else:
         max_head_bone = max(breast_bones, key=lambda b: (armature.matrix_world @ b.head_local).y)
     max_head_co = armature.matrix_world @ max_head_bone.head_local
@@ -735,13 +724,12 @@ def get_accessory_info(breast_bones, breast_names, joint_parent, rb_parent):
 
 
 def get_breast_bones(root):
-    # 加物理筛选，构成胸部且没被刚体关联的骨骼删不掉
-    # 不加物理筛选，容易把胸部饰品骨骼当做胸部，导致其被删掉
-    # 常见名称 + 物理筛选 比较合适
-    # 什么是胸骨？
-    # 胸.L 和 胸.R 肯定是胸骨且应该被删除
-    # 匹配上命名规则的肯定是胸骨（不论是否含物理 不论是否连接上半身2）
-    # 如果在这些骨骼中没有找到权重骨，则return
+    """
+    获取胸部骨骼列表
+
+    - 通过正则来识别模型中的胸部骨骼。
+    - 少女前线2的胸部骨骼单独处理。
+    """
 
     armature = find_pmx_armature(root)
     breast_bones = []
@@ -866,7 +854,7 @@ def trans_vg(obj, source_vg_name, target_vg_name, factor=1.0, remove_source=True
                 source_vg.add([v_index], src_weight * (1 - factor), 'REPLACE')
 
 
-def filter_bones(armature, breast_bones):
+def filter_horizontal_bones(armature, breast_bones):
     # 假设 breast_bones 已经存在
     # 夹角阈值 30 度
     angle_threshold = math.radians(30)
@@ -897,7 +885,7 @@ def filter_bones(armature, breast_bones):
     return filtered_bones
 
 
-def get_vertices_influenced_by_bones(obj, bone_names, threshold):
+def get_vertices_influenced_by_bones(obj, bone_names):
     verts = []
     mesh = obj.data
 
@@ -908,7 +896,7 @@ def get_vertices_influenced_by_bones(obj, bone_names, threshold):
             if vg_name in bone_names:
                 total_weight += g.weight
 
-        if total_weight > threshold:
+        if total_weight > WEIGHT_THRESHOLD:
             verts.append(v)
 
     return verts
@@ -993,8 +981,13 @@ def expand_accessory_bone_names(armature, accessory_breast_rel_map):
     return accessory_bone_names
 
 
-def recursive_search(directory, threshold, conflict_strategy, props):
+def recursive_search(props):
     """寻找指定路径下各个子目录中，时间最新且未进行处理的那个模型"""
+    batch = props.batch
+    directory = batch.directory
+    threshold = batch.threshold
+    conflict_strategy = batch.conflict_strategy
+
     file_list = []
     pmx_count = 0
     for root, dirs, files in os.walk(directory):
@@ -1073,7 +1066,6 @@ def check_batch_props(operator, batch):
 def round_to_two_decimals(value):
     """将数值四舍五入到小数点后两位"""
     return round(value, 2)
-
 
 
 def create_bvh_tree_from_object(obj):
