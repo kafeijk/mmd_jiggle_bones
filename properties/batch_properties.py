@@ -16,11 +16,11 @@ class BatchProperty(bpy.types.PropertyGroup):
         max=1024 * 1024,
     )
     conflict_strategy: bpy.props.EnumProperty(
-        name="冲突处理",
-        description="当模型目录中已存在带有指定参数后缀的模型文件时，选择如何处理源模型文件",
+        name="冲突时",
+        description="当模型目录中已存在由插件生成的模型文件时，如何进行后续操作",
         items=[
-            ("SKIP", "跳过", "忽略源模型文件，不再执行后续操作"),
+            ("SKIP", "跳过", "忽略对应的源模型文件，不再执行后续操作"),
             ("RE_GENERATE", "重新生成", "生成一个新的模型文件，并保留原有文件")
         ],
-        default="SKIP"
+        default="RE_GENERATE"
     )

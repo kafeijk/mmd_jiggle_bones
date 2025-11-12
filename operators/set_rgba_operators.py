@@ -248,7 +248,6 @@ class SetRgbaOperator(bpy.types.Operator):
                             root_r, armature_r, bone_r, dummy_tail_lo_r, rb_parent_l)
         # 删除源模型胸部骨骼及对应的刚体Joint，防止刚体Joint重名
         b_names_l, b_names_r = remove_breast_bones(root, armature, rb_parent, kept_joints)
-
         # 通过MMD Tools手术，合并模型
         join_model(armature, armature_l, armature_r)
 
@@ -276,18 +275,16 @@ class SetRgbaOperator(bpy.types.Operator):
             frames.move(frames.find(PHYSICAL_FRAME_NAME), len(root.mmd_root.display_item_frames) - 1)
 
         # 汝窑百分比
-        # 想保证开启物理前后胸部不上翘或下坠，始终保持原来的位置，Joint中右胸_後2、右胸_後2、右胸_前2、左胸_前2的值就不能变更
-        # 想要控制汝窑程度 需要变更Joint中右胸_後2、右胸_後2、右胸_前2、左胸_前2的值
-        # 可以通过修改权重的方式替代
-        trans_vg(obj, BREAST_BL_NAME_L, UPPER_BODY2_NAME, factor=1 - factor, remove_source=False)
-        trans_vg(obj, BREAST_BL_NAME_R, UPPER_BODY2_NAME, factor=1 - factor, remove_source=False)
+        # RGBA刚体依然保留了普通胸部刚体的结构，包括胸部骨骼、胸部刚体和胸部Joint，其余刚体与Joint仅作为辅助使用。
+        # 也就是说，真正影响胸部骨骼运动的刚体是绑定到该骨骼的物理刚体，因此只需修改对应Joint的限定值即可实现抖动幅度的变化。
+        # 另外，改变胸部权重会影响原本模型，导致其被修改后不适合继续作为其它流程的基模，而修改Joint限定值可以解决该问题
+        set_joint_limits(factor, joint_parent, props)
 
         # 导出模型
         deselect_all_objects()
         select_and_activate(root)
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        new_filepath = os.path.join(file_dir,
-                                    f"{name}_RGBA_{format_factor(factor)}_{format_factor(rb_scale_factor)}_{COLLISION_MAP.get(props.collision)}_{timestamp}.pmx")
+        new_filepath = os.path.join(file_dir, f"{name}_RGBA_{timestamp}.pmx")
 
         export_pmx(new_filepath)
 
@@ -295,6 +292,54 @@ class SetRgbaOperator(bpy.types.Operator):
         clean_tmp_collection()
 
         return name, "INFO", f"执行完成，模型文件地址：{new_filepath}"
+
+
+def set_joint_limits(factor, joint_parent, props):
+    for joint in joint_parent.children:
+        joint_name = joint.mmd_joint.name_j
+        if joint_name not in [BREAST_JP_NAME_L, BREAST_JP_NAME_R]:
+            continue
+        rbc = joint.rigid_body_constraint
+        if props.jiggle_adjustment_mode == "DEFAULT":
+            rbc.limit_lin_x_lower = get_prop_default_value(props, "limit_lin_x_lower") * factor
+            rbc.limit_lin_x_upper = get_prop_default_value(props, "limit_lin_x_upper") * factor
+            rbc.limit_lin_y_lower = get_prop_default_value(props, "limit_lin_y_lower") * factor
+            rbc.limit_lin_y_upper = get_prop_default_value(props, "limit_lin_y_upper") * factor
+            rbc.limit_lin_z_lower = get_prop_default_value(props, "limit_lin_z_lower") * factor
+            rbc.limit_lin_z_upper = get_prop_default_value(props, "limit_lin_z_upper") * factor
+
+            rbc.limit_ang_x_lower = math.radians(
+                math.degrees(get_prop_default_value(props, "limit_ang_x_lower")) * factor)
+            rbc.limit_ang_x_upper = math.radians(
+                math.degrees(get_prop_default_value(props, "limit_ang_x_upper")) * factor)
+            rbc.limit_ang_y_lower = math.radians(
+                math.degrees(get_prop_default_value(props, "limit_ang_y_lower")) * factor)
+            rbc.limit_ang_y_upper = math.radians(
+                math.degrees(get_prop_default_value(props, "limit_ang_y_upper")) * factor)
+            rbc.limit_ang_z_lower = math.radians(
+                math.degrees(get_prop_default_value(props, "limit_ang_z_lower")) * factor)
+            rbc.limit_ang_z_upper = math.radians(
+                math.degrees(get_prop_default_value(props, "limit_ang_z_upper")) * factor)
+        else:
+            rbc.limit_lin_x_lower = props.limit_lin_x_lower
+            rbc.limit_lin_x_upper = props.limit_lin_x_upper
+            rbc.limit_lin_y_lower = props.limit_lin_y_lower
+            rbc.limit_lin_y_upper = props.limit_lin_y_upper
+            rbc.limit_lin_z_lower = props.limit_lin_z_lower
+            rbc.limit_lin_z_upper = props.limit_lin_z_upper
+
+            rbc.limit_ang_x_lower = props.limit_ang_x_lower
+            rbc.limit_ang_x_upper = props.limit_ang_x_upper
+            rbc.limit_ang_y_lower = props.limit_ang_y_lower
+            rbc.limit_ang_y_upper = props.limit_ang_y_upper
+            rbc.limit_ang_z_lower = props.limit_ang_z_lower
+            rbc.limit_ang_z_upper = props.limit_ang_z_upper
+
+
+def get_prop_default_value(struct, identifier):
+    for prop in struct.bl_rna.properties:
+        if prop.identifier == identifier:
+            return prop.default
 
 
 def get_rb_bone_rel_map(rb_parent):
@@ -998,19 +1043,14 @@ def recursive_search(props):
             for model_file in model_files:
                 curr_list.append(model_file)
 
-            pattern = re.compile(
-                r'^(.+)_RGBA_(\d+(?:\.\d+)?)_(\d+(?:\.\d+)?)_(默认|无碰撞)_(\d{14})$'
-            )
+            pattern = re.compile(r'^(.+)_RGBA.*$', re.IGNORECASE)
             files_to_remove = []
             for file in reversed(curr_list):
                 match = pattern.match(os.path.splitext(file)[0])
                 if not match:
                     continue
-                name, _, _, _, _ = match.groups()
-                new_filename_key = (f"{name}_RGBA_"
-                                    f"{format_factor(round_to_two_decimals(props.factor))}_"
-                                    f"{format_factor(round_to_two_decimals(props.rb_scale_factor))}_"
-                                    f"{COLLISION_MAP.get(props.collision)}")
+                name = match.groups()
+                new_filename_key = f"{name}_RGBA"
                 files_to_remove.append(file)
                 if new_filename_key in file:
                     if conflict_strategy == 'SKIP':
@@ -1019,7 +1059,7 @@ def recursive_search(props):
                             files_to_remove.append(f"{name}.pmx")
                     else:
                         pass
-
+            print(f"files_to_remove:{files_to_remove}")
             for file in reversed(files_to_remove):
                 if file in curr_list:
                     curr_list.remove(file)

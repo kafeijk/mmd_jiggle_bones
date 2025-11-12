@@ -23,7 +23,44 @@ class RGBAPanel(bpy.types.Panel):
         col = layout.column()
 
         col.prop(batch, "directory")
-        col.prop(props, "factor")
+        col.prop(props, "jiggle_adjustment_mode")
+
+        if props.jiggle_adjustment_mode == "DEFAULT":
+            col.prop(props, "factor")
+        else:
+            row1 = col.row(align=True)
+            row1.prop(props, "limit_lin_x_lower",text = "移动限制 X")
+            row1.prop(props, "limit_lin_x_sync", text="", icon="LINKED" if props.limit_lin_x_sync else "UNLINKED", emboss=True)
+            row1.prop(props, "limit_lin_x_upper",text = "")
+
+            row1 = col.row(align=True)
+            row1.prop(props, "limit_lin_y_lower",text = "Y")
+            row1.prop(props, "limit_lin_y_sync", text="", icon="LINKED" if props.limit_lin_y_sync else "UNLINKED", emboss=True)
+            row1.prop(props, "limit_lin_y_upper",text = "")
+
+            row1 = col.row(align=True)
+            row1.prop(props, "limit_lin_z_lower",text = "Z")
+            row1.prop(props, "limit_lin_z_sync", text="", icon="LINKED" if props.limit_lin_z_sync else "UNLINKED", emboss=True)
+            row1.prop(props, "limit_lin_z_upper",text = "")
+
+            row1 = col.row(align=True)
+            row1.prop(props, "limit_ang_x_lower", text="角度限制 X")
+            row1.prop(props, "limit_ang_x_sync", text="", icon="LINKED" if props.limit_ang_x_sync else "UNLINKED", emboss=True)
+            row1.prop(props, "limit_ang_x_upper", text="")
+
+            row1 = col.row(align=True)
+            row1.prop(props, "limit_ang_y_lower", text="Y")
+            row1.prop(props, "limit_ang_y_sync", text="", icon="LINKED" if props.limit_ang_y_sync else "UNLINKED", emboss=True)
+            row1.prop(props, "limit_ang_y_upper", text="")
+
+            row1 = col.row(align=True)
+            row1.prop(props, "limit_ang_z_lower", text="Z")
+            row1.prop(props, "limit_ang_z_sync", text="", icon="LINKED" if props.limit_ang_z_sync else "UNLINKED", emboss=True)
+            row1.prop(props, "limit_ang_z_upper", text="")
+
+
+
+
         col.prop(props, "rb_scale_factor")
         col.prop(props, "collision")
         col.prop(batch, "threshold")
