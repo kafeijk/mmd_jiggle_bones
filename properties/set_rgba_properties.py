@@ -240,6 +240,9 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
                                    "limit_lin_z_lower", "limit_lin_z_upper",
                                    "limit_ang_x_lower", "limit_ang_x_upper",
                                    "limit_ang_y_lower", "limit_ang_y_upper",
-                                   "limit_ang_z_lower", "limit_ang_z_upper"]:
+                                   "limit_ang_z_lower", "limit_ang_z_upper",
+                                   "limit_lin_x_sync", "limit_lin_y_sync", "limit_lin_z_sync",
+                                   "limit_ang_x_sync", "limit_ang_y_sync", "limit_ang_z_sync",
+                                   ]:
                 default = prop.default
                 setattr(struct, prop.identifier, default)

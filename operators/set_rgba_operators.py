@@ -954,25 +954,34 @@ def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):
             bpy.data.objects.remove(joint, do_unlink=True)
 
     # 处理刚体
-    for rigidbody in reversed(rb_parent.children):
+    rbs_to_delete = set()
+    for rigidbody in rb_parent.children:
         # 虽然这些刚体在删除对应骨骼时会一并被删除，但它们有可能被错误地绑定到非胸部骨骼上，所以在此强制删除
         name_j = rigidbody.mmd_rigid.name_j
         if name_j in RGBA_RB_NAMES:
-            bpy.data.objects.remove(rigidbody, do_unlink=True)
+            rbs_to_delete.add(rigidbody)
             continue
         match = BREAST_RB_PATTERN.match(name_j)
         if match and rigidbody.mmd_rigid.type in ('1', '2'):
-            bpy.data.objects.remove(rigidbody, do_unlink=True)
+            rbs_to_delete.add(rigidbody)
+            continue
+        # 删除衝突刚体，防止重复创建
+        addon_rb = [f"{n}衝突" for n in LIMB_RB_NAMES + [BREAST_JP_NAME_L, BREAST_JP_NAME_R]] + ["上半身2_R", "上半身2_L"]
+        if name_j in addon_rb:
+            rbs_to_delete.add(rigidbody)
             continue
         match = check_girlsfrontline_breast_bones_and_rbs(name_j)
         if match and rigidbody.mmd_rigid.type in ('1', '2'):
-            bpy.data.objects.remove(rigidbody, do_unlink=True)
+            rbs_to_delete.add(rigidbody)
             continue
         # 关联骨骼不存在则删除这个刚体
         if rigidbody.name in rbs_to_remove:
-            bpy.data.objects.remove(rigidbody, do_unlink=True)
+            rbs_to_delete.add(rigidbody)
             continue
         # 当刚体没有关联骨骼时，刚体可能会被Joint关联，所以不会导致问题，因此这种情况不处理，取决于模型本身
+    # 统一删除刚体
+    for rb_to_delete in rbs_to_delete:
+        bpy.data.objects.remove(rb_to_delete, do_unlink=True)
 
     # 删除无效关节
     for joint in reversed(joint_parent.children):
