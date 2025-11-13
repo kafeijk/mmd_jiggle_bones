@@ -200,7 +200,8 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         description="胸部碰撞组",
         default=14,
         min=0,
-        max=15
+        max=15,
+        update=lambda self, context: self.skip_13(context),
     )
     batch: bpy.props.PointerProperty(type=BatchProperty)
 
@@ -211,6 +212,11 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
     @staticmethod
     def unregister():
         del bpy.types.Scene.mmd_jiggle_tools_set_rgba
+
+    def skip_13(self, context):
+        # 13 是手臂的碰撞组，避免使用13
+        if self.collision_group_number == 13:
+            self.collision_group_number = 12
 
     def _sync_pair(self, sync, lower_attr, upper_attr, changed_property):
         if not sync:
