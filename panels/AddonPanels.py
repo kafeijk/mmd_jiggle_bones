@@ -60,9 +60,9 @@ class RGBAPanel(bpy.types.Panel):
 
 
 
-
-        col.prop(props, "rb_scale_factor")
         col.prop(props, "collision")
+        col.prop(props, "rb_scale_factor")
+        col.prop(props, "collision_group_number")
         col.prop(batch, "threshold")
         col.prop(batch, "conflict_strategy")
         col.operator(SetRgbaOperator.bl_idname, text=SetRgbaOperator.bl_label)

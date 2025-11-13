@@ -29,8 +29,6 @@ RGBA_JOINT_NAMES = [
 LIMB_RB_NAMES = ["右手首", "右手", "右ひじ", "右腕", "左手首", "左手", "左ひじ", "左腕"]
 # 四肢 + 躯干 主体刚体碰撞群组  PE 1~16 MMD Tools 0~15
 LIMB_RB_GROUP = 13
-# 胸部碰撞群组
-BREAST_RB_GROUP = 14  # 15-1
 
 RB_JOINT_PREFIX_REGEXP = re.compile(r'(?P<prefix>[0-9A-Z]{3}_)(?P<name>.*)')
 
@@ -164,7 +162,6 @@ class SetRgbaOperator(bpy.types.Operator):
         factor = round_to_two_decimals(props.factor)
         rb_scale_factor = round_to_two_decimals(props.rb_scale_factor)
         filepath = f_path
-        collision = props.collision
 
         # 防止MMD Tools插件的导入Bug，这里需将当前帧调整为0或1
         bpy.context.scene.frame_current = 0
@@ -266,7 +263,7 @@ class SetRgbaOperator(bpy.types.Operator):
         # 将胸部刚体绑定到源模型的身体骨骼
         bind_rb_to_body(rb_parent)
         # 设置胸部刚体碰撞组并对胸部刚体及胸部Joint重排序
-        set_collision_and_resort(root, accessory_breast_rel_map, collision)
+        set_collision_and_resort(root, accessory_breast_rel_map, props)
         # 恢复“物理”显示枠位置
         if physics_frame_index != -1:
             frames.move(frames.find(PHYSICAL_FRAME_NAME), physics_frame_index)
@@ -359,7 +356,7 @@ def get_rb_bone_rel_map(rb_parent):
     return rbn_bone_map, rbn_rb_map, bone_rbs_map
 
 
-def set_collision_and_resort(root, accessory_breast_rel_map, collision):
+def set_collision_and_resort(root, accessory_breast_rel_map, props):
     """
     设置刚体碰撞组并对RGBA胸部刚体及Joint重排序
     创建“双臂衝突刚体”，仅对“胸部刚体”碰撞，“胸部刚体”仅对“双臂衝突刚体”碰撞
@@ -369,16 +366,15 @@ def set_collision_and_resort(root, accessory_breast_rel_map, collision):
     胸部子孙骨和胸部如果有碰撞且穿模，设置为非碰撞，如朱鸢
     """
     armature, objs, joint_parent, rb_parent = get_mmd_info(root)
-    rbn_bone_map, rbn_rb_map, bone_rbs_map = get_rb_bone_rel_map(rb_parent)
     rigid_bodies = rb_parent.children
-    physical_bone_names = get_physical_bone(root)
-    physical_bone_names = set(physical_bone_names)
-    bones = armature.data.bones
+    collision = props.collision
+    breast_rb_group = props.collision_group_number
 
     # 不论碰撞策略如何设置，第一步均先将胸部物理碰撞关闭
     for rb in rigid_bodies:
         if rb.mmd_rigid.name_j not in RGBA_RB_NAMES:
             continue
+        rb.mmd_rigid.collision_group_number = breast_rb_group
         for i in range(16):
             rb.mmd_rigid.collision_group_mask[i] = True
 
@@ -388,7 +384,7 @@ def set_collision_and_resort(root, accessory_breast_rel_map, collision):
         # 少前2 设置名称含“上半身”的刚体不与胸部碰撞，可能会影响其它“物理刚体”的碰撞，如头发，但几率较低
         for rb in rigid_bodies:
             if UPPER_BODY_NAME in rb.mmd_rigid.name_j:
-                rb.mmd_rigid.collision_group_mask[BREAST_RB_GROUP] = True
+                rb.mmd_rigid.collision_group_mask[breast_rb_group] = True
 
         # 创建两臂衝突刚体，并设置两臂衝突刚体与胸部碰撞，且仅与胸部碰撞
         for rb in rigid_bodies:
@@ -410,7 +406,7 @@ def set_collision_and_resort(root, accessory_breast_rel_map, collision):
             crb.mmd_rigid.collision_group_number = LIMB_RB_GROUP
             # 仅与胸部碰撞
             for i in range(16):
-                if i == BREAST_RB_GROUP:
+                if i == breast_rb_group:
                     crb.mmd_rigid.collision_group_mask[i] = False
                 else:
                     crb.mmd_rigid.collision_group_mask[i] = True
@@ -429,7 +425,7 @@ def set_collision_and_resort(root, accessory_breast_rel_map, collision):
             if rb.mmd_rigid.type not in ('1', '2'):
                 continue
             cgn = rb.mmd_rigid.collision_group_number
-            if cgn == BREAST_RB_GROUP:
+            if cgn == breast_rb_group:
                 continue
             cgn_set.add(cgn)
 
@@ -452,7 +448,7 @@ def set_collision_and_resort(root, accessory_breast_rel_map, collision):
             crb.mmd_rigid.name_j = crb_name
             crb.name = f"AAA_{crb_name}"
             crb.mmd_rigid.type = "0"
-            crb.mmd_rigid.collision_group_number = BREAST_RB_GROUP
+            crb.mmd_rigid.collision_group_number = breast_rb_group
             # 与物理部位碰撞
             for i in cgn_set:
                 crb.mmd_rigid.collision_group_mask[i] = False
@@ -464,7 +460,7 @@ def set_collision_and_resort(root, accessory_breast_rel_map, collision):
             if rb.mmd_rigid.bone not in accessory_breast_rel_map:
                 continue
             rb.mmd_rigid.type = '0'
-            rb.mmd_rigid.collision_group_mask[BREAST_RB_GROUP] = True
+            rb.mmd_rigid.collision_group_mask[breast_rb_group] = True
 
         # 胸部子级和胸部如果有碰撞且穿模，设置为非碰撞，如朱鸢
         rgba_rbs = [rb for rb in rigid_bodies if rb.mmd_rigid.name_j in RGBA_RB_NAMES]
@@ -476,12 +472,12 @@ def set_collision_and_resort(root, accessory_breast_rel_map, collision):
                 continue
             if rb.mmd_rigid.bone not in accessory_bone_names:
                 continue
-            if rb.mmd_rigid.collision_group_mask[BREAST_RB_GROUP] is True:
+            if rb.mmd_rigid.collision_group_mask[breast_rb_group] is True:
                 continue
             for rgba_rb in rgba_rbs:
                 intersection = check_bvh_intersection(rb, rgba_rb)
                 if intersection:
-                    rb.mmd_rigid.collision_group_mask[BREAST_RB_GROUP] = True
+                    rb.mmd_rigid.collision_group_mask[breast_rb_group] = True
                     break
 
     # 刚体顺序重排序
@@ -966,7 +962,8 @@ def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):
             rbs_to_delete.add(rigidbody)
             continue
         # 删除衝突刚体，防止重复创建
-        addon_rb = [f"{n}衝突" for n in LIMB_RB_NAMES + [BREAST_JP_NAME_L, BREAST_JP_NAME_R]] + ["上半身2_R", "上半身2_L"]
+        addon_rb = [f"{n}衝突" for n in LIMB_RB_NAMES + [BREAST_JP_NAME_L, BREAST_JP_NAME_R]] + ["上半身2_R",
+                                                                                                 "上半身2_L"]
         if name_j in addon_rb:
             rbs_to_delete.add(rigidbody)
             continue

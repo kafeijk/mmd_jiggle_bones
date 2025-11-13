@@ -7,7 +7,7 @@ from .batch_properties import BatchProperty
 
 class SetRgbaProperty(bpy.types.PropertyGroup):
     jiggle_adjustment_mode: bpy.props.EnumProperty(
-        name="抖动调节模式",
+        name="抖动模式",
         description="通过何种模式调节胸部抖动",
         items=[
             ("DEFAULT", "默认", "各参数统一乘上“抖动强度”系数进行调节，以整体控制胸部的抖动效果"),
@@ -189,12 +189,19 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         name="碰撞策略",
         description="控制胸部与身体之间的物理碰撞行为",
         items=[
-            ("DEFAULT", "默认", "双臂会影响胸部的物理运动；胸部会影响其他物理部位，但其他物理部位不会反向影响胸部"),
+            ("DEFAULT", "自动", "双臂会影响胸部的物理运动；胸部会影响其他物理部位，但其他物理部位不会反向影响胸部"),
             ("NO_COLLISION", "无碰撞", "胸部不参与任何物理碰撞计算")
         ],
         default="DEFAULT",
     )
 
+    collision_group_number: bpy.props.IntProperty(
+        name="碰撞组",
+        description="胸部碰撞组",
+        default=14,
+        min=0,
+        max=15
+    )
     batch: bpy.props.PointerProperty(type=BatchProperty)
 
     @staticmethod
