@@ -61,7 +61,8 @@ COLLISION_MAP = {
 
 # 胸部权重阈值
 WEIGHT_THRESHOLD = 0.25
-
+# 文件名非法字符
+INVALID_CHARS = '<>:"/\\|?*'
 
 # 少女前线2单独校验
 def check_girlsfrontline_breast_bones_and_rbs(b_name):
@@ -280,9 +281,11 @@ class SetRgbaOperator(bpy.types.Operator):
         # 导出模型
         deselect_all_objects()
         select_and_activate(root)
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         batch = props.batch
-        new_filepath = os.path.join(file_dir, f"{name} {batch.suffix} {timestamp}.pmx")
+        new_filepath = os.path.join(file_dir, f"{name} {batch.suffix}.pmx")
+        if os.path.exists(new_filepath):
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            new_filepath = os.path.join(file_dir, f"{name} {batch.suffix} {timestamp}.pmx")
 
         export_pmx(new_filepath)
 
@@ -1048,7 +1051,7 @@ def recursive_search(props):
         processed_files = set()
         # 经检索模式和冲突时筛选后的模型文件
         selected = []
-        processed_pattern = re.compile(r'^(.+) ' + suffix + r' \d{14}$')
+        processed_pattern = re.compile(r'^(.+)' + suffix + r'.*')
         for f in pmx_files:
             if os.path.getsize(os.path.join(root, f)) <= threshold:
                 continue
@@ -1056,6 +1059,7 @@ def recursive_search(props):
             m = processed_pattern.match(name_no_ext)
             if m:
                 original_name = m.groups()[0]
+                original_name = original_name[:-1] if original_name.endswith(" ") else original_name
                 processed_files.add(f"{original_name}{ext}")
             else:
                 original_files.append(f)
@@ -1083,6 +1087,7 @@ def recursive_search(props):
 
 
 def check_batch_props(operator, batch):
+    suffix = batch.suffix
     directory = batch.directory
 
     # 获取目录的全限定路径 这里用blender提供的方法获取，而不是os.path.abspath。没有必要将相对路径转为绝对路径，因为哪种路径是由用户决定的
@@ -1098,6 +1103,10 @@ def check_batch_props(operator, batch):
     # 校验目录是否是盘符根目录
     if abs_path == drive_root:
         operator.report(type={'ERROR'}, message=f'Invalid root directory! Change to subfolder.')
+        return False
+    # 仅简单校验下后缀是否合法
+    if any(char in suffix for char in INVALID_CHARS):
+        operator.report(type={'ERROR'}, message=f'Invalid name suffix!')
         return False
 
     return True

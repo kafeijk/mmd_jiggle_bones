@@ -68,12 +68,7 @@ class RGBAPanel(bpy.types.Panel):
         batch_ui.prop(batch, "directory")
         batch_ui.prop(batch, "search_strategy")
         batch_ui.prop(batch, "threshold")
-        batch_ui_row = batch_ui.row()
-        batch_ui_row.prop(batch, "suffix")
-        batch_ui_row.label(text="", icon='ADD')
-        batch_ui_row2 = batch_ui_row.row()
-        batch_ui_row2.prop(batch, "suffix_dummy", text="")
-        batch_ui_row2.enabled = False
+        batch_ui.prop(batch, "suffix")
         batch_ui.prop(batch, "conflict_strategy")
 
 
