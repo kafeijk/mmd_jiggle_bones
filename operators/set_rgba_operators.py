@@ -281,7 +281,8 @@ class SetRgbaOperator(bpy.types.Operator):
         deselect_all_objects()
         select_and_activate(root)
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        new_filepath = os.path.join(file_dir, f"{name}_RGBA_{timestamp}.pmx")
+        batch = props.batch
+        new_filepath = os.path.join(file_dir, f"{name} {batch.suffix} {timestamp}.pmx")
 
         export_pmx(new_filepath)
 
@@ -1027,56 +1028,58 @@ def recursive_search(props):
     """寻找指定路径下各个子目录中，时间最新且未进行处理的那个模型"""
     batch = props.batch
     directory = batch.directory
+    search_strategy = batch.search_strategy
     threshold = batch.threshold
+    suffix = batch.suffix
     conflict_strategy = batch.conflict_strategy
 
-    file_list = []
-    pmx_count = 0
+    results = []
+    total_pmx_count = 0
     for root, dirs, files in os.walk(directory):
-        flag = False
+        pmx_files = [f for f in files if f.lower().endswith(('.pmx', '.pmd'))]
+        if not pmx_files:
+            continue
+        total_pmx_count += len(pmx_files)
 
-        for file in files:
-            if file.endswith('.pmx') or file.endswith('.pmd'):
-                flag = True
-                pmx_count += 1
-        if flag:
-            curr_list = []  # 当前目录下符合条件的文件
-            model_files = [f for f in files
-                           if (f.endswith('.pmx') or f.endswith('.pmd'))
-                           and os.path.getsize(os.path.join(root, f)) > threshold * 1024]  # 排除掉已被排除的文件的影响
+        print(f"当前模型目录：{root}")
+        # 原模型文件
+        original_files = []
+        # 原模型文件（已处理）
+        processed_files = set()
+        # 经检索模式和冲突时筛选后的模型文件
+        selected = []
+        processed_pattern = re.compile(r'^(.+) ' + suffix + r' \d{14}$')
+        for f in pmx_files:
+            if os.path.getsize(os.path.join(root, f)) <= threshold:
+                continue
+            name_no_ext, ext = os.path.splitext(f)
+            m = processed_pattern.match(name_no_ext)
+            if m:
+                original_name = m.groups()[0]
+                processed_files.add(f"{original_name}{ext}")
+            else:
+                original_files.append(f)
 
-            # 如果满足条件的model_files有多个，获取全部
-            for model_file in model_files:
-                curr_list.append(model_file)
+        print(f"原模型文件:{original_files}")
+        print(f"原模型文件（已优化过）:{processed_files}")
+        if search_strategy == 'LATEST':
+            selected = [max(original_files, key=lambda x: os.path.getmtime(os.path.join(root, x)))]
+        elif search_strategy == 'ALL':
+            selected = original_files
+        print(f"原模型文件（检索模式-{search_strategy}）：{selected}")
+        if conflict_strategy == 'SKIP':
+            selected = [f for f in selected if f not in processed_files]
+        else:
+            pass
+        print(f"原模型文件（检索模式-{search_strategy} 冲突时-{conflict_strategy}）：{selected}")
 
-            pattern = re.compile(r'^(.+)_RGBA.*$', re.IGNORECASE)
-            files_to_remove = []
-            for file in reversed(curr_list):
-                match = pattern.match(os.path.splitext(file)[0])
-                if not match:
-                    continue
-                name = match.groups()
-                new_filename_key = f"{name}_RGBA"
-                files_to_remove.append(file)
-                if new_filename_key in file:
-                    if conflict_strategy == 'SKIP':
-                        source_file = os.path.join(root, f"{name}.pmx")
-                        if os.path.exists(source_file):
-                            files_to_remove.append(f"{name}.pmx")
-                    else:
-                        pass
-            print(f"files_to_remove:{files_to_remove}")
-            for file in reversed(files_to_remove):
-                if file in curr_list:
-                    curr_list.remove(file)
+        results.extend(os.path.join(root, f) for f in selected)
 
-            for file in curr_list:
-                file_list.append(os.path.join(root, file))
     msg = bpy.app.translations.pgettext_iface("Actual files to process: {}. Total files: {}, skipped: {}").format(
-        len(file_list), pmx_count, pmx_count - len(file_list)
+        len(results), total_pmx_count, total_pmx_count - len(results)
     )
     print(msg)
-    return file_list
+    return results
 
 
 def check_batch_props(operator, batch):

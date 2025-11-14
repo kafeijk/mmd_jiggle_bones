@@ -22,7 +22,6 @@ class RGBAPanel(bpy.types.Panel):
         layout.use_property_decorate = False
         col = layout.column()
 
-        col.prop(batch, "directory")
         col.prop(props, "jiggle_adjustment_mode")
 
         if props.jiggle_adjustment_mode == "DEFAULT":
@@ -63,8 +62,21 @@ class RGBAPanel(bpy.types.Panel):
         col.prop(props, "collision")
         col.prop(props, "rb_scale_factor")
         col.prop(props, "collision_group_number")
-        col.prop(batch, "threshold")
-        col.prop(batch, "conflict_strategy")
+
+        batch_box = col.box()
+        batch_ui = batch_box.column()
+        batch_ui.prop(batch, "directory")
+        batch_ui.prop(batch, "search_strategy")
+        batch_ui.prop(batch, "threshold")
+        batch_ui_row = batch_ui.row()
+        batch_ui_row.prop(batch, "suffix")
+        batch_ui_row.label(text="", icon='ADD')
+        batch_ui_row2 = batch_ui_row.row()
+        batch_ui_row2.prop(batch, "suffix_dummy", text="")
+        batch_ui_row2.enabled = False
+        batch_ui.prop(batch, "conflict_strategy")
+
+
         col.operator(SetRgbaOperator.bl_idname, text=SetRgbaOperator.bl_label)
 
 

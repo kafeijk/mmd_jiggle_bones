@@ -24,3 +24,23 @@ class BatchProperty(bpy.types.PropertyGroup):
         ],
         default="RE_GENERATE"
     )
+    suffix: bpy.props.StringProperty(
+        name="名称后缀",
+        description="在源文件名的基础上，为输出文件添加的名称后缀",
+        default='RGBA',
+        maxlen=50,  # 防止用户随意输入
+    )
+    suffix_dummy: bpy.props.StringProperty(
+        name="名称后缀（时间戳）",
+        description="在源文件名的基础上，为输出文件添加的名称后缀（时间戳）",
+        default='时间戳',
+        maxlen=50,  # 防止用户随意输入
+    )
+    search_strategy: bpy.props.EnumProperty(
+        name="检索模式",
+        description="如果检索到多个符合条件的文件，应该如何处理",
+        items=[
+            ("LATEST", "最新", "获取修改日期最新的文件"),
+            ("ALL", "全部", "获取所有文件")],
+        default="LATEST"
+    )
