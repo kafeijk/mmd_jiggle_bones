@@ -15,15 +15,63 @@ class RGBAPanel(bpy.types.Panel):
     def draw(self, context):
         scene = context.scene
         props = scene.mmd_jiggle_tools_set_rgba
+        batch = props.batch
 
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
         col = layout.column()
 
-        col.prop(props, "filepath")
-        col.prop(props, "factor")
+        col.prop(props, "jiggle_adjustment_mode")
+
+        if props.jiggle_adjustment_mode == "DEFAULT":
+            col.prop(props, "factor")
+        else:
+            row1 = col.row(align=True)
+            row1.prop(props, "limit_lin_x_lower",text = "移动限制 X")
+            row1.prop(props, "limit_lin_x_sync", text="", icon="LINKED" if props.limit_lin_x_sync else "UNLINKED", emboss=True)
+            row1.prop(props, "limit_lin_x_upper",text = "")
+
+            row1 = col.row(align=True)
+            row1.prop(props, "limit_lin_y_lower",text = "Y")
+            row1.prop(props, "limit_lin_y_sync", text="", icon="LINKED" if props.limit_lin_y_sync else "UNLINKED", emboss=True)
+            row1.prop(props, "limit_lin_y_upper",text = "")
+
+            row1 = col.row(align=True)
+            row1.prop(props, "limit_lin_z_lower",text = "Z")
+            row1.prop(props, "limit_lin_z_sync", text="", icon="LINKED" if props.limit_lin_z_sync else "UNLINKED", emboss=True)
+            row1.prop(props, "limit_lin_z_upper",text = "")
+
+            row1 = col.row(align=True)
+            row1.prop(props, "limit_ang_x_lower", text="角度限制 X")
+            row1.prop(props, "limit_ang_x_sync", text="", icon="LINKED" if props.limit_ang_x_sync else "UNLINKED", emboss=True)
+            row1.prop(props, "limit_ang_x_upper", text="")
+
+            row1 = col.row(align=True)
+            row1.prop(props, "limit_ang_y_lower", text="Y")
+            row1.prop(props, "limit_ang_y_sync", text="", icon="LINKED" if props.limit_ang_y_sync else "UNLINKED", emboss=True)
+            row1.prop(props, "limit_ang_y_upper", text="")
+
+            row1 = col.row(align=True)
+            row1.prop(props, "limit_ang_z_lower", text="Z")
+            row1.prop(props, "limit_ang_z_sync", text="", icon="LINKED" if props.limit_ang_z_sync else "UNLINKED", emboss=True)
+            row1.prop(props, "limit_ang_z_upper", text="")
+
+
+
+        col.prop(props, "collision")
         col.prop(props, "rb_scale_factor")
+        col.prop(props, "collision_group_number")
+
+        batch_box = col.box()
+        batch_ui = batch_box.column()
+        batch_ui.prop(batch, "directory")
+        batch_ui.prop(batch, "search_strategy")
+        batch_ui.prop(batch, "threshold")
+        batch_ui.prop(batch, "suffix")
+        batch_ui.prop(batch, "conflict_strategy")
+
+
         col.operator(SetRgbaOperator.bl_idname, text=SetRgbaOperator.bl_label)
 
 
