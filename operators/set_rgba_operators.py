@@ -660,18 +660,31 @@ def join_model(armature, armature_l, armature_r):
     bpy.ops.object.mode_set(mode='POSE')
     # 取消选中源模型所有骨骼
     for pb in armature.pose.bones:
-        pb.bone.select = False
+        select_pose_bone(pb, False)
     # 选中左右胸部骨骼，选中源模型“上半身2”骨骼
     for pb in armature_l.pose.bones:
-        pb.bone.select = True
+        select_pose_bone(pb, True)
     for pb in armature_r.pose.bones:
-        pb.bone.select = True
+        select_pose_bone(pb, True)
     for pb in armature.pose.bones:
         if pb.name == UPPER_BODY2_NAME:
-            pb.bone.select = True
+            select_pose_bone(pb, True)
             armature.data.bones.active = pb.bone
     # 合并模型
     bpy.ops.mmd_tools.model_join_by_bones()
+
+
+def select_pose_bone(pb, status):
+    """选中/取消选中姿态模式下骨骼"""
+    blender_version = bpy.app.version
+    # https://developer.blender.org/docs/release_notes/5.0/python_api/#animation-rigging
+    # Pose bones now have a select property that stores their selection state.
+    # (bpy.data.objects["Armature"].pose.bones[0].select)
+    # Selection is synced with edit bones when going in and out of Edit Mode.
+    if blender_version < (5, 0, 0):
+        pb.bone.select = status
+    else:
+        pb.select = status
 
 
 def bind_rb_to_body(rb_parent):
