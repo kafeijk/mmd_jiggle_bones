@@ -15,6 +15,7 @@ BREAST_JP_NAME_L = "左胸"
 BREAST_JP_NAME_R = "右胸"
 UPPER_BODY_NAME = "上半身"
 UPPER_BODY2_NAME = "上半身2"
+NECK_NAME = "首"
 # RGBA胸部刚体名称
 RGBA_RB_NAMES = ['右胸_後', '右胸_回転', '右胸_前', '右胸_前後', '右胸',
                  '左胸_後', '左胸_回転', '左胸_前', '左胸_前後', '左胸']
@@ -63,6 +64,7 @@ COLLISION_MAP = {
 WEIGHT_THRESHOLD = 0.25
 # 文件名非法字符
 INVALID_CHARS = '<>:"/\\|?*'
+
 
 # 少女前线2单独校验
 def check_girlsfrontline_breast_bones_and_rbs(b_name):
@@ -197,9 +199,15 @@ class SetRgbaOperator(bpy.types.Operator):
             return name, "ERROR", f"源模型中胸部顶点权重均小于{WEIGHT_THRESHOLD}，无法获取有效胸部网格范围"
 
         # 校验源模型是否存在名为“上半身2”的骨骼
-        if not any(pb.name == UPPER_BODY2_NAME for pb in armature.pose.bones):
-            clean_tmp_collection()
-            return name, "ERROR", f"源模型中未找到名称为“{UPPER_BODY2_NAME}”的骨骼"
+        # 存在则代表该模型为符合标准的模型（次标准骨骼在标准骨骼的基础上构建）
+        # 但部分模型存在上半身3的情况，用来控制呼吸的表现等。所以实际胸部的父级不一定为上半身2，也可能是上半身3，也就是“首”的父级
+        for bone_name in (UPPER_BODY2_NAME, NECK_NAME):
+            if bone_name not in armature.pose.bones:
+                clean_tmp_collection()
+                return name, "ERROR", f"源模型中未找到名称为“{bone_name}”的骨骼"
+
+        neck_bone = armature.data.bones.get(NECK_NAME)
+        target_upper_body_name = neck_bone.parent.name
 
         # 获取源模型“物理”显示枠索引
         frames = root.mmd_root.display_item_frames
@@ -247,7 +255,7 @@ class SetRgbaOperator(bpy.types.Operator):
         # 删除源模型胸部骨骼及对应的刚体Joint，防止刚体Joint重名
         b_names_l, b_names_r = remove_breast_bones(root, armature, rb_parent, kept_joints)
         # 通过MMD Tools手术，合并模型
-        join_model(armature, armature_l, armature_r)
+        join_model(armature, armature_l, armature_r, target_upper_body_name)
 
         # 重新获取源模型，即合并后的模型
         armature, objs, _, rb_parent = get_mmd_info(root)
@@ -262,7 +270,7 @@ class SetRgbaOperator(bpy.types.Operator):
         # 修复胸饰与胸之间的父子关系与Joint连接
         repair_accessory(root, accessory_breast_rel_map, kept_joints)
         # 将胸部刚体绑定到源模型的身体骨骼
-        bind_rb_to_body(rb_parent)
+        bind_rb_to_body(rb_parent, target_upper_body_name)
         # 设置胸部刚体碰撞组并对胸部刚体及胸部Joint重排序
         set_collision_and_resort(root, accessory_breast_rel_map, props)
         # 恢复“物理”显示枠位置
@@ -457,13 +465,14 @@ def set_collision_and_resort(root, accessory_breast_rel_map, props):
             for i in cgn_set:
                 crb.mmd_rigid.collision_group_mask[i] = False
 
-        # 胸部首个子骨对应的刚体如果为“物理+骨骼”类型，则改为追踪骨骼，如乱破
+        # 胸部首个子骨对应的刚体如果为“追踪骨骼”类型，则改为“物理+骨骼”
+        # “追踪骨骼”类型会使胸部在MMD中乱飞，即使所有刚体全部设置为不冲突，在PE却表现正常。
         for rb in rigid_bodies:
-            if rb.mmd_rigid.type != '2':  # 限定 物理+骨骼 类型
+            if rb.mmd_rigid.type != '0':  # 限定“追踪骨骼”类型
                 continue
             if rb.mmd_rigid.bone not in accessory_breast_rel_map:
                 continue
-            rb.mmd_rigid.type = '0'
+            rb.mmd_rigid.type = '2'
             rb.mmd_rigid.collision_group_mask[breast_rb_group] = True
 
         # 胸部子级和胸部如果有碰撞且穿模，设置为非碰撞，如朱鸢
@@ -652,7 +661,7 @@ def remove_breast_bones(root, armature, rb_parent, kept_joints):
     return b_names_l, b_names_r
 
 
-def join_model(armature, armature_l, armature_r):
+def join_model(armature, armature_l, armature_r, target_upper_body_name):
     deselect_all_objects()
     select_and_activate(armature_l)
     select_and_activate(armature_r)
@@ -660,30 +669,47 @@ def join_model(armature, armature_l, armature_r):
     bpy.ops.object.mode_set(mode='POSE')
     # 取消选中源模型所有骨骼
     for pb in armature.pose.bones:
-        pb.bone.select = False
+        select_pose_bone(pb, False)
     # 选中左右胸部骨骼，选中源模型“上半身2”骨骼
     for pb in armature_l.pose.bones:
-        pb.bone.select = True
+        select_pose_bone(pb, True)
     for pb in armature_r.pose.bones:
-        pb.bone.select = True
+        select_pose_bone(pb, True)
     for pb in armature.pose.bones:
-        if pb.name == UPPER_BODY2_NAME:
-            pb.bone.select = True
+        if pb.name == target_upper_body_name:
+            select_pose_bone(pb, True)
             armature.data.bones.active = pb.bone
     # 合并模型
     bpy.ops.mmd_tools.model_join_by_bones()
 
 
-def bind_rb_to_body(rb_parent):
+def select_pose_bone(pb, status):
+    """选中/取消选中姿态模式下骨骼"""
+    blender_version = bpy.app.version
+    # https://developer.blender.org/docs/release_notes/5.0/python_api/#animation-rigging
+    # Pose bones now have a select property that stores their selection state.
+    # (bpy.data.objects["Armature"].pose.bones[0].select)
+    # Selection is synced with edit bones when going in and out of Edit Mode.
+    if blender_version < (5, 0, 0):
+        pb.bone.select = status
+    else:
+        pb.select = status
+
+
+def bind_rb_to_body(rb_parent, target_upper_body_name):
     """
     将胸部刚体绑定到源模型的身体骨骼。
     暂对“上半身2.L”和“上半身2.R”进行冗余处理，并调整其碰撞组和尺寸。
     """
     for rb in rb_parent.children:
-        if rb.mmd_rigid.name_j in ["上半身2_L", "上半身2_R"]:
-            rb.mmd_rigid.bone = UPPER_BODY2_NAME
-            for i in range(16):
-                rb.mmd_rigid.collision_group_mask[i] = True
+        name_j = rb.mmd_rigid.name_j
+        if name_j in ("上半身2_L", "上半身2_R"):
+            suffix = "_L" if name_j.endswith("_L") else "_R"
+
+            rb.mmd_rigid.name_j = f"{target_upper_body_name}{suffix}"
+            rb.mmd_rigid.bone = target_upper_body_name
+
+            rb.mmd_rigid.collision_group_mask[:] = [True] * 16
             rb.mmd_rigid.size[0] = 0.01
             rb.mmd_rigid.size[1] = 0.01
 

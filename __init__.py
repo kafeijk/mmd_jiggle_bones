@@ -12,7 +12,7 @@ bl_info = {
     "name": "mmd_jiggle_bones",
     "author": "来杯咖啡再说",
     "blender":(3, 0, 0),
-    "version": (1, 0, 0),
+    "version": (1, 1, 0),
     "description": "Addon for replacing model breast physics",
     "category": "3D View"
 }
