@@ -465,13 +465,14 @@ def set_collision_and_resort(root, accessory_breast_rel_map, props):
             for i in cgn_set:
                 crb.mmd_rigid.collision_group_mask[i] = False
 
-        # 胸部首个子骨对应的刚体如果为“物理+骨骼”类型，则改为追踪骨骼，如乱破
+        # 胸部首个子骨对应的刚体如果为“追踪骨骼”类型，则改为“物理+骨骼”
+        # “追踪骨骼”类型会使胸部在MMD中乱飞，即使所有刚体全部设置为不冲突，在PE却表现正常。
         for rb in rigid_bodies:
-            if rb.mmd_rigid.type != '2':  # 限定 物理+骨骼 类型
+            if rb.mmd_rigid.type != '0':  # 限定“追踪骨骼”类型
                 continue
             if rb.mmd_rigid.bone not in accessory_breast_rel_map:
                 continue
-            rb.mmd_rigid.type = '0'
+            rb.mmd_rigid.type = '2'
             rb.mmd_rigid.collision_group_mask[breast_rb_group] = True
 
         # 胸部子级和胸部如果有碰撞且穿模，设置为非碰撞，如朱鸢
