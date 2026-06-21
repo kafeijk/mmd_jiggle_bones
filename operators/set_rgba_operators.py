@@ -7,74 +7,13 @@ import bmesh
 import mathutils
 from mathutils.bvhtree import BVHTree
 
+from .analysis_operators import validate_analysis_param
+from .analysis_operators import preprocess
+from .analysis_operators import batch_do_analysis
+from .analysis_operators import AnalysisStatus
+from .analysis_operators import filter_results
+from .analysis_operators import remove_tmp_obj
 from ..utils import *
-
-BREAST_BL_NAME_L = "胸.L"
-BREAST_BL_NAME_R = "胸.R"
-BREAST_JP_NAME_L = "左胸"
-BREAST_JP_NAME_R = "右胸"
-UPPER_BODY_NAME = "上半身"
-UPPER_BODY2_NAME = "上半身2"
-NECK_NAME = "首"
-# RGBA胸部刚体名称
-RGBA_RB_NAMES = ['右胸_後', '右胸_回転', '右胸_前', '右胸_前後', '右胸',
-                 '左胸_後', '左胸_回転', '左胸_前', '左胸_前後', '左胸']
-# RGBA胸部刚体名称 + 上半身刚体名称
-RGBA_RB2_NAMES = ['上半身2_R', '右胸_後', '右胸_回転', '右胸_前', '右胸_前後', '右胸',
-                  '上半身2_L', '左胸_後', '左胸_回転', '左胸_前', '左胸_前後', '左胸']
-# RGBA胸部Joint名称
-RGBA_JOINT_NAMES = [
-    "右胸_後1", "右胸_後2", "右胸_回転1", "右胸_前1", "右胸_前2", "右胸_回転2", "右胸_前後1", "右胸_前後2", "右胸",
-    "左胸_後1", "左胸_後2", "左胸_回転1", "左胸_前1", "左胸_前2", "左胸_回転2", "左胸_前後1", "左胸_前後2", "左胸", ]
-# 双臂刚体名称
-LIMB_RB_NAMES = ["右手首", "右手", "右ひじ", "右腕", "左手首", "左手", "左ひじ", "左腕"]
-# 四肢 + 躯干 主体刚体碰撞群组  PE 1~16 MMD Tools 0~15
-LIMB_RB_GROUP = 13
-
-RB_JOINT_PREFIX_REGEXP = re.compile(r'(?P<prefix>[0-9A-Z]{3}_)(?P<name>.*)')
-
-BREAST_BONE_PATTERN = re.compile(
-    r'^胸'  # 开头必须是“胸”
-    r'([_上下前後先間親亲変形回転支え基W筋]*)'
-    r'([0-9０-９])?'  # 可选的单独数字（半角或全角）
-    r'([錘先D])?'
-    r'(\.\d{3})?'  # 可选的前置序号
-    r'(\.[LR])?'  # 可选的左右标识
-    r'(\.\d{3})?'  # 可选的后置序号
-    r'$'
-)
-
-BREAST_RB_PATTERN = re.compile(
-    r'^([_左右胸]*)'  # 开头必须是“胸”
-    r'([_上下前後先間親亲変形回転支え基W筋]*)'
-    r'([0-9０-９])?'  # 可选的单独数字（半角或全角）
-    r'([錘先D])?'
-    r'(\.\d{3})?'  # 可选的前置序号
-    r'(\.[LR])?'  # 可选的左右标识
-    r'(\.\d{3})?'  # 可选的后置序号
-    r'$'
-)
-PHYSICAL_FRAME_NAME = "物理"
-COLLISION_MAP = {
-    "DEFAULT": "默认",
-    "NO_COLLISION": "无碰撞",
-}
-
-# 胸部权重阈值
-WEIGHT_THRESHOLD = 0.25
-# 文件名非法字符
-INVALID_CHARS = '<>:"/\\|?*'
-
-
-# 少女前线2单独校验
-def check_girlsfrontline_breast_bones_and_rbs(b_name):
-    if "chest_r" in b_name.lower():
-        return True
-    if "chest_l" in b_name.lower():
-        return True
-    if "bone" in b_name.lower() and "ches" in b_name.lower():
-        return True
-    return False
 
 
 def get_mmd_info(root):
@@ -162,7 +101,6 @@ class SetRgbaOperator(bpy.types.Operator):
         return True
 
     def set_rgba(self, props, f_path=None):
-        factor = round_to_two_decimals(props.factor)
         rb_scale_factor = round_to_two_decimals(props.rb_scale_factor)
         filepath = f_path
 
@@ -184,19 +122,22 @@ class SetRgbaOperator(bpy.types.Operator):
         name, ext = os.path.splitext(file_name)
 
         # 获取源模型胸部骨骼列表
-        breast_bones = get_breast_bones(root)
-        if not breast_bones:
+        breast_bones_map = get_breast_bones_map(armature)
+        if not breast_bones_map:
             clean_tmp_collection()
             return name, "ERROR", "源模型中未找到胸部骨骼"
+        print(f"breast_bones_map:{breast_bones_map}")
+        breast_bones = next(iter(breast_bones_map.values()))
         breast_names = [b.name for b in breast_bones]
 
         # 筛选源模型胸部骨骼中的水平胸部骨骼，用于计算位置
         horizontal_bones = filter_horizontal_bones(armature, breast_bones)
-        # 从源模型胸部顶点中筛选权重大于WEIGHT_THRESHOLD的顶点，作为胸部网格范围，用于定位伪胸部骨骼的坐标
-        influenced_verts = get_vertices_influenced_by_bones(obj, [b.name for b in breast_bones])
-        if not influenced_verts:
+        # 从源模型胸部顶点中筛选权重大于WEIGHT_THRESHOLD的顶点，作为胸部网格范围，用于定位伪胸部骨骼的坐标 todo 骨骼补充，要不要参考下非MMD模型的胸部预设
+        primary, marginal = get_vertices_influenced_by_bones(obj, [b.name for b in breast_bones])
+        if not primary and not marginal:
             clean_tmp_collection()
-            return name, "ERROR", f"源模型中胸部顶点权重均小于{WEIGHT_THRESHOLD}，无法获取有效胸部网格范围"
+            return name, "ERROR", f"源模型中胸部顶点权重均为0，无法获取有效胸部网格范围"
+        influenced_verts = primary if primary else marginal
 
         # 校验源模型是否存在名为“上半身2”的骨骼
         # 存在则代表该模型为符合标准的模型（次标准骨骼在标准骨骼的基础上构建）
@@ -284,7 +225,11 @@ class SetRgbaOperator(bpy.types.Operator):
         # RGBA刚体依然保留了普通胸部刚体的结构，包括胸部骨骼、胸部刚体和胸部Joint，其余刚体与Joint仅作为辅助使用。
         # 也就是说，真正影响胸部骨骼运动的刚体是绑定到该骨骼的物理刚体，因此只需修改对应Joint的限定值即可实现抖动幅度的变化。
         # 另外，改变胸部权重会影响原本模型，导致其被修改后不适合继续作为其它流程的基模，而修改Joint限定值可以解决该问题
-        set_joint_limits(factor, joint_parent, props)
+        err, analysis_result = analyze_breast(root)
+        if err:
+            clean_tmp_collection()
+            return name, "ERROR", err
+        set_joint_limits(analysis_result, joint_parent, props)
 
         # 导出模型
         deselect_all_objects()
@@ -302,41 +247,79 @@ class SetRgbaOperator(bpy.types.Operator):
 
         return name, "INFO", f"执行完成，模型文件地址：{new_filepath}"
 
+def analyze_breast(root):
+    deselect_all_objects()
+    select_and_activate(root)
 
-def set_joint_limits(factor, joint_parent, props):
+    err, data = validate_analysis_param(root)
+    if err:
+        return err, None
+
+    source_objs = data["source_objs"]
+    obj_vgs_map = data["obj_vgs_map"]
+
+    preprocess(root, source_objs)
+
+    batch_result = batch_do_analysis(obj_vgs_map,"DEFAULT")
+    if batch_result.status != AnalysisStatus.OK:
+        return batch_result.msg, None
+
+    analysis_result, _, _ = filter_results(batch_result.results)
+
+    # 删除临时对象
+    remove_tmp_obj(batch_result.results, True, "DEFAULT")
+
+    return None, analysis_result
+
+def set_joint_limits(result, joint_parent, props):
+    mode = props.jiggle_adjustment_mode
+
+    if mode == "DEFAULT":
+        # 单侧胸宽
+        breast_x = result.max_x
+        # 胸部深度
+        breast_y = result.under_co.y - result.nipple_co.y
+        # 胸部高度
+        breast_z = (result.nipple_co.z - result.under_co.z) * 2
+
+        limit_lin_x_lower_mmd = -breast_x * 2 * MODEL_SCALE
+        limit_lin_x_upper_mmd = breast_x * 2 * MODEL_SCALE
+        limit_lin_y_lower_mmd = -breast_z * 2 * MODEL_SCALE
+        limit_lin_y_upper_mmd = breast_z * 2 * MODEL_SCALE
+        limit_lin_z_lower_mmd = -breast_y * MODEL_SCALE
+        limit_lin_z_upper_mmd = breast_y * MODEL_SCALE
+
+    elif mode == "CUSTOM_SIMPLIFY":
+        limit_lin_x_lower_mmd = -props.breast_x * 2 * MODEL_SCALE
+        limit_lin_x_upper_mmd = props.breast_x * 2 * MODEL_SCALE
+        limit_lin_y_lower_mmd = -props.breast_z * 2 * MODEL_SCALE
+        limit_lin_y_upper_mmd = props.breast_z * 2 * MODEL_SCALE
+        limit_lin_z_lower_mmd = -props.breast_y * MODEL_SCALE
+        limit_lin_z_upper_mmd = props.breast_y * MODEL_SCALE
+
+    else:
+        # 自定义时，参数含义与PE一致，仅做缩放处理
+        limit_lin_x_lower_mmd = props.limit_lin_x_lower *  MODEL_SCALE
+        limit_lin_x_upper_mmd = props.limit_lin_x_upper *  MODEL_SCALE
+        limit_lin_y_lower_mmd = props.limit_lin_z_lower *  MODEL_SCALE
+        limit_lin_y_upper_mmd = props.limit_lin_z_upper *  MODEL_SCALE
+        limit_lin_z_lower_mmd = props.limit_lin_y_lower * MODEL_SCALE
+        limit_lin_z_upper_mmd = props.limit_lin_y_upper * MODEL_SCALE
+
     for joint in joint_parent.children:
-        joint_name = joint.mmd_joint.name_j
-        if joint_name not in [BREAST_JP_NAME_L, BREAST_JP_NAME_R]:
+        if joint.mmd_joint.name_j not in {BREAST_JP_NAME_L, BREAST_JP_NAME_R}:
             continue
+
         rbc = joint.rigid_body_constraint
-        if props.jiggle_adjustment_mode == "DEFAULT":
-            rbc.limit_lin_x_lower = get_prop_default_value(props, "limit_lin_x_lower") * factor
-            rbc.limit_lin_x_upper = get_prop_default_value(props, "limit_lin_x_upper") * factor
-            rbc.limit_lin_y_lower = get_prop_default_value(props, "limit_lin_y_lower") * factor
-            rbc.limit_lin_y_upper = get_prop_default_value(props, "limit_lin_y_upper") * factor
-            rbc.limit_lin_z_lower = get_prop_default_value(props, "limit_lin_z_lower") * factor
-            rbc.limit_lin_z_upper = get_prop_default_value(props, "limit_lin_z_upper") * factor
 
-            rbc.limit_ang_x_lower = math.radians(
-                math.degrees(get_prop_default_value(props, "limit_ang_x_lower")) * factor)
-            rbc.limit_ang_x_upper = math.radians(
-                math.degrees(get_prop_default_value(props, "limit_ang_x_upper")) * factor)
-            rbc.limit_ang_y_lower = math.radians(
-                math.degrees(get_prop_default_value(props, "limit_ang_y_lower")) * factor)
-            rbc.limit_ang_y_upper = math.radians(
-                math.degrees(get_prop_default_value(props, "limit_ang_y_upper")) * factor)
-            rbc.limit_ang_z_lower = math.radians(
-                math.degrees(get_prop_default_value(props, "limit_ang_z_lower")) * factor)
-            rbc.limit_ang_z_upper = math.radians(
-                math.degrees(get_prop_default_value(props, "limit_ang_z_upper")) * factor)
-        else:
-            rbc.limit_lin_x_lower = props.limit_lin_x_lower
-            rbc.limit_lin_x_upper = props.limit_lin_x_upper
-            rbc.limit_lin_y_lower = props.limit_lin_y_lower
-            rbc.limit_lin_y_upper = props.limit_lin_y_upper
-            rbc.limit_lin_z_lower = props.limit_lin_z_lower
-            rbc.limit_lin_z_upper = props.limit_lin_z_upper
+        rbc.limit_lin_x_lower = limit_lin_x_lower_mmd
+        rbc.limit_lin_x_upper = limit_lin_x_upper_mmd
+        rbc.limit_lin_y_lower = limit_lin_y_lower_mmd
+        rbc.limit_lin_y_upper = limit_lin_y_upper_mmd
+        rbc.limit_lin_z_lower = limit_lin_z_lower_mmd
+        rbc.limit_lin_z_upper = limit_lin_z_upper_mmd
 
+        if mode == "CUSTOM":
             rbc.limit_ang_x_lower = props.limit_ang_x_lower
             rbc.limit_ang_x_upper = props.limit_ang_x_upper
             rbc.limit_ang_y_lower = props.limit_ang_y_lower
@@ -619,7 +602,8 @@ def get_dummy_breast_coords(armature, breast_bones, horizontal_bones, influenced
 
 def remove_breast_bones(root, armature, rb_parent, kept_joints):
     # 记录被删除的骨骼属于左侧还是右侧
-    breast_bones = get_breast_bones(root)
+    breast_bones_map = get_breast_bones_map(armature)
+    breast_bones = next(iter(breast_bones_map.values()))
     breast_names = [b.name for b in breast_bones]
     b_names_l = []
     b_names_r = []
@@ -779,31 +763,6 @@ def get_accessory_info(armature, breast_bones, breast_names, joint_parent, rb_pa
     return accessory_breast_rel_map, kept_joints
 
 
-def get_breast_bones(root):
-    """
-    获取胸部骨骼列表
-
-    - 通过正则来识别模型中的胸部骨骼。
-    - 少女前线2的胸部骨骼单独处理。
-    """
-
-    armature = find_pmx_armature(root)
-    breast_bones = []
-    for b in armature.data.bones:
-        b_name = b.name
-        if is_dummy_bone(b_name):
-            continue
-        match = BREAST_BONE_PATTERN.match(b_name)
-        if match:
-            breast_bones.append(b)
-            continue
-        match = check_girlsfrontline_breast_bones_and_rbs(b_name)
-        if match:
-            breast_bones.append(b)
-
-    return breast_bones
-
-
 def get_physical_bone(root):
     """获取受物理影响的骨骼"""
     rigidbody_parent = find_rigid_body_parent(root)
@@ -949,20 +908,30 @@ def filter_horizontal_bones(armature, breast_bones):
 
 
 def get_vertices_influenced_by_bones(obj, bone_names):
-    verts = []
-    mesh = obj.data
+    """
+    按骨骼权重将顶点分为两组：
+    - primary:  总权重 >  WEIGHT_THRESHOLD（主要受影响顶点）
+    - marginal: 总权重 在 (0, WEIGHT_THRESHOLD] 之间（轻微受影响顶点）
+    """
+    primary  = []  # 权重显著的顶点
+    marginal = []  # 权重微小但非零的顶点
 
-    for v in mesh.vertices:
-        total_weight = 0.0
-        for g in v.groups:
-            vg_name = obj.vertex_groups[g.group].name
-            if vg_name in bone_names:
-                total_weight += g.weight
+    bone_name_set = set(bone_names)
+    vg_index_to_name = {i: vg.name for i, vg in enumerate(obj.vertex_groups)}
+
+    for v in obj.data.vertices:
+        total_weight = sum(
+            g.weight
+            for g in v.groups
+            if vg_index_to_name.get(g.group) in bone_name_set
+        )
 
         if total_weight > WEIGHT_THRESHOLD:
-            verts.append(v)
+            primary.append(v)
+        elif total_weight > 0:  # 隐含 total_weight <= WEIGHT_THRESHOLD
+            marginal.append(v)
 
-    return verts
+    return primary, marginal
 
 
 def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):

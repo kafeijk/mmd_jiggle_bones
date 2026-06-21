@@ -10,39 +10,32 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         name="抖动模式",
         description="通过何种模式调节胸部抖动",
         items=[
-            ("DEFAULT", "默认", "各参数统一乘上“抖动强度”系数进行调节，以整体控制胸部的抖动效果"),
-            ("CUSTOM", "自定义", "分别填写各参数的数值以进行独立调节")
+            ("DEFAULT", "默认", "自动分析胸部参数，以此来设置抖动效果"),
+            ("CUSTOM_SIMPLIFY", "自定义（简化）", "手动填写部分胸部参数，以此来设置抖动效果，适用于单个模型的调整"),
+            ("CUSTOM", "自定义", "手动填写完整胸部参数，以此来设置抖动效果，适用于单个模型的调整")
         ],
         default="DEFAULT",
         update=lambda self, context: self.set_default_limits(context, "jiggle_adjustment_mode"),
     )
 
-    factor: bpy.props.FloatProperty(
-        name="抖动强度",
-        description="控制胸部抖动强度",
-        default=0.5,
-        min=0.0,
-        max=1.0,
-        precision=2,
-        step=1,
-    )
-
     limit_lin_x_lower: bpy.props.FloatProperty(
         name="移动下限X",
         description="",
-        default=-0.04,
-        min=-0.08,
-        max=0,
+        subtype="DISTANCE",
+        default=-0.5,
+        min=-0.5,
+        max=0.5,
         precision=3,
         step=0.1,
         update=lambda self, context: self.update_limits(context, "limit_lin_x_lower"),
     )
     limit_lin_x_upper: bpy.props.FloatProperty(
         name="移动上限X",
+        subtype="DISTANCE",
         description="",
-        default=0.04,
-        min=0,
-        max=0.08,
+        default=0.5,
+        min=-0.5,
+        max=0.5,
         precision=3,
         step=0.1,
         update=lambda self, context: self.update_limits(context, "limit_lin_x_upper"),
@@ -54,20 +47,22 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
     )
     limit_lin_y_lower: bpy.props.FloatProperty(
         name="移动下限Y",
+        subtype="DISTANCE",
         description="",
-        default=-0.032,
-        min=-0.08,
-        max=0,
+        default=-0.4,
+        min=-0.5,
+        max=0.5,
         precision=3,
         step=0.1,
         update=lambda self, context: self.update_limits(context, "limit_lin_y_lower"),
     )
     limit_lin_y_upper: bpy.props.FloatProperty(
         name="移动上限Y",
+        subtype="DISTANCE",
         description="",
-        default=0.024,
-        min=0,
-        max=0.08,
+        default=0.3,
+        min=-0.5,
+        max=0.5,
         precision=3,
         step=0.1,
         update=lambda self, context: self.update_limits(context, "limit_lin_y_upper"),
@@ -80,20 +75,22 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
 
     limit_lin_z_lower: bpy.props.FloatProperty(
         name="移动下限Z",
+        subtype="DISTANCE",
         description="",
-        default=-0.04,
-        min=-0.08,
-        max=0,
+        default=-0.5,
+        min=-0.5,
+        max=0.5,
         precision=3,
         step=0.1,
         update=lambda self, context: self.update_limits(context, "limit_lin_z_lower"),
     )
     limit_lin_z_upper: bpy.props.FloatProperty(
         name="移动上限Z",
+        subtype="DISTANCE",
         description="",
-        default=0.04,
-        min=0,
-        max=0.08,
+        default=0.5,
+        min=-0.5,
+        max=0.5,
         precision=3,
         step=0.1,
         update=lambda self, context: self.update_limits(context, "limit_lin_z_upper"),
@@ -110,7 +107,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         description="",
         subtype="ANGLE",
         default=math.radians(-45),
-        max=math.radians(0),
+        max=math.radians(180),
         min=math.radians(-180),
         update=lambda self, context: self.update_limits(context, "limit_ang_x_lower"),
     )
@@ -120,7 +117,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         subtype="ANGLE",
         default=math.radians(45),
         max=math.radians(180),
-        min=math.radians(0),
+        min=math.radians(-180),
         update=lambda self, context: self.update_limits(context, "limit_ang_x_upper"),
     )
     limit_ang_x_sync: bpy.props.BoolProperty(
@@ -133,7 +130,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         description="",
         subtype="ANGLE",
         default=math.radians(-15),
-        max=math.radians(0),
+        max=math.radians(180),
         min=math.radians(-180),
         update=lambda self, context: self.update_limits(context, "limit_ang_y_lower"),
     )
@@ -143,7 +140,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         subtype="ANGLE",
         default=math.radians(15),
         max=math.radians(180),
-        min=math.radians(0),
+        min=math.radians(-180),
         update=lambda self, context: self.update_limits(context, "limit_ang_y_upper"),
     )
     limit_ang_y_sync: bpy.props.BoolProperty(
@@ -156,7 +153,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         description="",
         subtype="ANGLE",
         default=math.radians(-60),
-        max=math.radians(0),
+        max=math.radians(180),
         min=math.radians(-180),
         update=lambda self, context: self.update_limits(context, "limit_ang_z_lower"),
     )
@@ -166,7 +163,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         subtype="ANGLE",
         default=math.radians(60),
         max=math.radians(180),
-        min=math.radians(0),
+        min=math.radians(-180),
         update=lambda self, context: self.update_limits(context, "limit_ang_z_upper"),
     )
     limit_ang_z_sync: bpy.props.BoolProperty(
@@ -203,6 +200,38 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         max=15,
         update=lambda self, context: self.skip_13(context),
     )
+
+    breast_x: bpy.props.FloatProperty(
+        name="单侧胸宽",
+        subtype="DISTANCE",
+        description="",
+        default=0.5,
+        min=0,
+        max=0.5,
+        precision=3,
+        step=0.1,
+    )
+    breast_y: bpy.props.FloatProperty(
+        name="胸部深度",
+        subtype="DISTANCE",
+        description="",
+        default=0.3,
+        min=0,
+        max=0.3,
+        precision=3,
+        step=0.1,
+    )
+    breast_z: bpy.props.FloatProperty(
+        name="胸部高度",
+        subtype="DISTANCE",
+        description="",
+        default=0.5,
+        min=0,
+        max=0.5,
+        precision=3,
+        step=0.1,
+    )
+
     batch: bpy.props.PointerProperty(type=BatchProperty)
 
     @staticmethod
@@ -233,7 +262,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
                 setattr(self, lower_attr, new_value)
 
     def update_limits(self, context, changed_property):
-        if self.jiggle_adjustment_mode == "DEFAULT":
+        if self.jiggle_adjustment_mode in ("DEFAULT", "CUSTOM_SIMPLIFY"):
             return
         self._sync_pair(self.limit_lin_x_sync, "limit_lin_x_lower", "limit_lin_x_upper", changed_property)
         self._sync_pair(self.limit_lin_y_sync, "limit_lin_y_lower", "limit_lin_y_upper", changed_property)
@@ -243,19 +272,22 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         self._sync_pair(self.limit_ang_z_sync, "limit_ang_z_lower", "limit_ang_z_upper", changed_property)
 
     def set_default_limits(self, context, changed_property):
-        if self.jiggle_adjustment_mode != "CUSTOM":
+        struct = context.scene.mmd_jiggle_tools_set_rgba
+
+        if self.jiggle_adjustment_mode == "CUSTOM_SIMPLIFY":
+            target_props = {"breast_x", "breast_y", "breast_z"}
+        elif self.jiggle_adjustment_mode == "CUSTOM":
+            target_props = {
+                "limit_lin_x_lower", "limit_lin_x_sync", "limit_lin_x_upper",
+                "limit_lin_y_lower", "limit_lin_y_sync", "limit_lin_y_upper",
+                "limit_lin_z_lower", "limit_lin_z_sync", "limit_lin_z_upper",
+                "limit_ang_x_lower", "limit_ang_x_sync", "limit_ang_x_upper",
+                "limit_ang_y_lower", "limit_ang_y_sync", "limit_ang_y_upper",
+                "limit_ang_z_lower", "limit_ang_z_sync", "limit_ang_z_upper"}
+        else:
             return
 
-        struct = context.scene.mmd_jiggle_tools_set_rgba
-        for prop in struct.bl_rna.properties:
-            if prop.identifier in ["limit_lin_x_lower", "limit_lin_x_upper",
-                                   "limit_lin_y_lower", "limit_lin_y_upper",
-                                   "limit_lin_z_lower", "limit_lin_z_upper",
-                                   "limit_ang_x_lower", "limit_ang_x_upper",
-                                   "limit_ang_y_lower", "limit_ang_y_upper",
-                                   "limit_ang_z_lower", "limit_ang_z_upper",
-                                   "limit_lin_x_sync", "limit_lin_y_sync", "limit_lin_z_sync",
-                                   "limit_ang_x_sync", "limit_ang_y_sync", "limit_ang_z_sync",
-                                   ]:
-                default = prop.default
-                setattr(struct, prop.identifier, default)
+        props = struct.bl_rna.properties
+
+        for name in target_props:
+            setattr(struct, name, props[name].default)

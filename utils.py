@@ -1,3 +1,4 @@
+import math
 import re
 import time
 
@@ -8,9 +9,155 @@ import bpy
 MAX_RETRIES = 5
 # 临时集合名称
 TMP_COLLECTION_NAME = "KAFEI临时集合"
+# 分析临时集合名称
+TMP_ANALYSIS_COLLECTION_NAME = "KAFEI分析临时集合"
 # 导入pmx生成的txt文件pattern
 TXT_INFO_PATTERN = re.compile(r'(.*)(_e(\.\d{3})?)$')
 
+BREAST_BL_NAME_L = "胸.L"
+BREAST_BL_NAME_R = "胸.R"
+BREAST_JP_NAME_L = "左胸"
+BREAST_JP_NAME_R = "右胸"
+UPPER_BODY_NAME = "上半身"
+UPPER_BODY2_NAME = "上半身2"
+NECK_NAME = "首"
+# RGBA胸部刚体名称
+RGBA_RB_NAMES = ['右胸_後', '右胸_回転', '右胸_前', '右胸_前後', '右胸',
+                 '左胸_後', '左胸_回転', '左胸_前', '左胸_前後', '左胸']
+# RGBA胸部刚体名称 + 上半身刚体名称
+RGBA_RB2_NAMES = ['上半身2_R', '右胸_後', '右胸_回転', '右胸_前', '右胸_前後', '右胸',
+                  '上半身2_L', '左胸_後', '左胸_回転', '左胸_前', '左胸_前後', '左胸']
+# RGBA胸部Joint名称
+RGBA_JOINT_NAMES = [
+    "右胸_後1", "右胸_後2", "右胸_回転1", "右胸_前1", "右胸_前2", "右胸_回転2", "右胸_前後1", "右胸_前後2", "右胸",
+    "左胸_後1", "左胸_後2", "左胸_回転1", "左胸_前1", "左胸_前2", "左胸_回転2", "左胸_前後1", "左胸_前後2", "左胸", ]
+# 双臂刚体名称
+LIMB_RB_NAMES = ["右手首", "右手", "右ひじ", "右腕", "左手首", "左手", "左ひじ", "左腕"]
+# 四肢 + 躯干 主体刚体碰撞群组  PE 1~16 MMD Tools 0~15
+LIMB_RB_GROUP = 13
+
+RB_JOINT_PREFIX_REGEXP = re.compile(r'(?P<prefix>[0-9A-Z]{3}_)(?P<name>.*)')
+
+BREAST_BONE_PATTERN = re.compile(
+    r'^胸'  # 开头必须是“胸”
+    r'([_上下前後先間親亲変形回転支え基W筋]*)'
+    r'([0-9０-９])?'  # 可选的单独数字（半角或全角）
+    r'([錘先D])?'
+    r'(\.\d{3})?'  # 可选的前置序号
+    r'(\.[LR])?'  # 可选的左右标识
+    r'(\.\d{3})?'  # 可选的后置序号
+    r'$'
+)
+
+BREAST_RB_PATTERN = re.compile(
+    r'^([_左右胸]*)'  # 开头必须是“胸”
+    r'([_上下前後先間親亲変形回転支え基W筋]*)'
+    r'([0-9０-９])?'  # 可选的单独数字（半角或全角）
+    r'([錘先D])?'
+    r'(\.\d{3})?'  # 可选的前置序号
+    r'(\.[LR])?'  # 可选的左右标识
+    r'(\.\d{3})?'  # 可选的后置序号
+    r'$'
+)
+PHYSICAL_FRAME_NAME = "物理"
+COLLISION_MAP = {
+    "DEFAULT": "默认",
+    "NO_COLLISION": "无碰撞",
+}
+
+# 胸部权重阈值
+WEIGHT_THRESHOLD = 0.25
+# 文件名非法字符
+INVALID_CHARS = '<>:"/\\|?*'
+# 胸部对象临时名称
+BREAST_TMP_OBJ_NAME = "BREAST_TMP"
+
+# 胸部尺码判定列表
+# 每次递增2。
+# 如果每次递增设置为2.5，整体罩杯会变小，由于上下乳点所对应的胸廓后背差其实也很大，所以让每次递增数变小一些，使罩杯的变化更明显一些。
+CUP_LIST = [
+    (2, "AA"),
+    (4, "A"),
+    (6, "B"),
+    (8, "C"),
+    (10, "D"),
+    (12, "E"),
+    (14, "F"),
+    (16, "G"),
+    (18, "H"),
+    (20, "I"),
+    (22, "J"),
+    (24, "K"),
+    (26, "L"),
+    (28, "M"),
+    (30, "N"),
+    (32, "O"),
+    (34, "P"),
+    (36, "Q"),
+    (38, "R"),
+    (40, "S"),
+    (42, "T"),
+    (44, "U"),
+    (46, "V"),
+    (48, "W"),
+    (50, "X"),
+    (52, "Y"),
+    (54, "Z"),
+    (1000000, "???"),
+]
+# cup值到索引的映射
+CUP_INDEX_MAP = {v: i for i, (k, v) in enumerate(CUP_LIST)}
+
+def get_cup_index(value):
+    return CUP_INDEX_MAP.get(value, -1)
+
+# 胸部尺码判定列表
+# 每次递增2.5。
+STANDARD_CUP_LIST = [
+    (10, "AA"),
+    (12.5, "A"),
+    (15, "B"),
+    (17.5, "C"),
+    (20, "D"),
+    (22.5, "E"),
+    (25, "F"),
+    (27.5, "G"),
+    (30, "H"),
+    (32.5, "I"),
+    (35, "J"),
+    (37.5, "K"),
+    (40, "L"),
+    (42.5, "M"),
+    (45, "N"),
+    (47.5, "O"),
+    (50, "P"),
+    (52.5, "Q"),
+    (55, "R"),
+    (57.5, "S"),
+    (60, "T"),
+    (62.5, "U"),
+    (65, "V"),
+    (67.5, "W"),
+    (70, "X"),
+    (72.5, "Y"),
+    (75, "Z"),
+    (1000000, "???"),
+]
+# cup值到索引的映射
+STANDARD_CUP_INDEX_MAP= {v: i for i, (k, v) in enumerate(STANDARD_CUP_LIST)}
+
+def get_standard_cup_index(value):
+    return CUP_INDEX_MAP.get(value, -1)
+
+# 胸部权重阈值（用于胸部尺码分析
+# 设置为0会导致芙提雅_烈兔的判定偏大
+WEIGHT_THRESHOLD_FOR_ANALYSIS = 0.25  # todo 到底设为什么值 0也还行？ 待测试 茉莉安_幽潮_绒尾迷梦 咎冠_蜂刺蔷薇 雷电将军
+
+# 修正上乳点时，顶点关联面的角度超出何种范围时判定为有问题
+LINKED_FACES_THRESHOLD = math.radians(130)  # 100度仍不保守，调整至120度，如雷电将军 调整至130度，如苔丝_绮幻
+
+# 模型在MMD与Blender之间的默认缩放值
+MODEL_SCALE = 0.08
 
 def find_pmx_root():
     """寻找pmx对应空物体"""
@@ -281,3 +428,120 @@ def int2base(x, base, width=0):
 
 def is_dummy_bone(name):
     return name.startswith("_dummy_") or name.startswith("_shadow_")
+
+
+def find_ancestor(obj):
+    ancestor = obj
+    while ancestor.parent is not None:
+        ancestor = ancestor.parent
+    return ancestor
+
+
+def find_objs(root, obj_type='MESH'):
+    """递归查找 root 及其所有子物体中指定类型的物体（Mesh 默认排除刚体）"""
+    objs = []
+
+    def is_rigidbody(obj):
+        return obj.rigid_body is not None
+
+    def recurse(obj):
+        if obj.type == obj_type:
+            # 如果是 Mesh，排除刚体
+            if obj_type == 'MESH' and is_rigidbody(obj):
+                pass
+            else:
+                objs.append(obj)
+
+        for child in obj.children:
+            recurse(child)
+
+    recurse(root)
+    return objs
+
+
+def get_breast_bones(root):
+    """
+    获取胸部骨骼列表
+
+    - 通过正则来识别模型中的胸部骨骼。
+    - 少女前线2的胸部骨骼单独处理。
+    """
+
+    armature = find_pmx_armature(root)
+    breast_bones = []
+    for b in armature.data.bones:
+        b_name = b.name
+        if is_dummy_bone(b_name):
+            continue
+        match = BREAST_BONE_PATTERN.match(b_name)
+        if match:
+            breast_bones.append(b)
+            continue
+        match = check_girlsfrontline_breast_bones_and_rbs(b_name)
+        if match:
+            breast_bones.append(b)
+
+    return breast_bones
+
+
+def get_breast_bones_map(armatures):
+    """
+    获取骨架与胸部骨骼的映射
+
+    - 通过正则来识别模型中的胸部骨骼。
+    - 少女前线2的胸部骨骼单独处理。
+
+    Returns:
+        {
+            armature1: [bone1, bone2, ...],
+            armature2: [bone3, bone4, ...],
+            ...
+        }
+    """
+
+    if not isinstance(armatures, (list, tuple, set)):
+        armatures = [armatures]
+
+    breast_bones_map = {}
+
+    for armature in armatures:
+        breast_bones = []
+
+        for bone in armature.data.bones:
+            b_name = bone.name
+
+            if is_dummy_bone(b_name):
+                continue
+
+            if BREAST_BONE_PATTERN.match(b_name):
+                breast_bones.append(bone)
+                continue
+
+            if check_girlsfrontline_breast_bones_and_rbs(b_name):
+                breast_bones.append(bone)
+
+        if breast_bones:
+            breast_bones_map[armature] = breast_bones
+
+    return breast_bones_map
+
+
+# 少女前线2单独校验
+def check_girlsfrontline_breast_bones_and_rbs(b_name):
+    if "chest_r" in b_name.lower():
+        return True
+    if "chest_l" in b_name.lower():
+        return True
+    if "bone" in b_name.lower() and "ches" in b_name.lower():
+        return True
+    return False
+
+
+def copy_obj(obj, col=None):
+    new_mesh = obj.data.copy()
+    new_obj = obj.copy()
+    new_obj.data = new_mesh
+    if not col:
+        col = obj.users_collection[0]
+    col.objects.link(new_obj)
+    return new_obj

@@ -1,0 +1,1795 @@
+from dataclasses import dataclass
+from enum import Enum, auto
+
+import bmesh
+import bpy_extras.mesh_utils
+from mathutils import Vector
+
+from ..utils import *
+
+
+class AnalysisStatus(Enum):
+    OK = auto()
+    NO_BREAST_VERTS = auto()
+    NO_ISLANDS = auto()
+    NO_BOUNDARY = auto()
+    NO_BREAST_VERTS_AFTER_DELETE_INVALID = auto()
+    NO_BREAST_INNER = auto()
+    ERROR = auto()
+
+
+@dataclass
+class AnalysisResult:
+    status: AnalysisStatus = AnalysisStatus.ERROR
+    msg: str = ""
+
+    threshold: Vector | None = None
+    nipple_co: Vector | None = None
+    under_co: Vector | None = None
+    inner_co: Vector | None = None
+    max_x: int | None = None
+    cup: str | None = None
+    cup_index: int | None = None
+    cup_inner: str | None = None
+    cup_inner_index: int | None = None
+
+    upper_bust: float | None = None
+    under_bust: float | None = None
+    bust_diff: float | None = None
+
+    tmp_obj: object | None = None
+    tmp_obj_for_base_body: object | None = None
+
+
+@dataclass
+class BatchAnalysisResult:
+    status: AnalysisStatus = AnalysisStatus.ERROR
+    msg: str = ""
+    results: list | None = None
+
+
+def postprocess(active_object, obj_visibility_map):
+    for obj, visibility in obj_visibility_map.items():
+        set_visibility(obj, visibility)
+
+    deselect_all_objects()
+    select_and_activate(active_object)
+
+
+def further_process_for_base_body(source_objs, results):
+    results.sort(key=lambda r: r.threshold, reverse=True)
+    cups = []
+    for index, result in enumerate(results):
+        if result.status != AnalysisStatus.OK:
+            print(f"不ok")
+            continue
+
+        # 胸部较大而自然下垂时，z_max 可能会小于 z_min，因此不做continue校验
+        # todo 巨乳而导致的多个孤岛问题 从上乳点开始向左走，遇到交叉就解开，然后继续走，直到回到上乳点。上乳点所在一圈为链，verts中移除其余无法到达此链的点
+        # todo 通用和素体方式共用参数互相影响 应修复
+        z_max = result.nipple_co.z
+        z_min = result.under_co.z
+        if z_max < z_min:
+            z_tmp = z_min
+            z_min = z_max
+            z_max = z_tmp
+
+        # 创建临时对象
+        tmp_col, tmp_obj, temp_mesh = create_tmp_obj(None, delete_unwanted_flag=False, source_objs=source_objs)
+        # 切两刀，获取 z_min 与 z_max 中间部分
+        crop_mesh_by_z(tmp_obj, z_min, z_max)
+        # 合并顶点
+        bm = bmesh.new()
+        bm.from_mesh(temp_mesh)
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-6)
+        bm.to_mesh(temp_mesh)
+        bm.free()
+
+        # 保留 under_co、nipple_co 所在孤岛，删除其余孤岛
+        # 此处因为是位置校验而非顶点校验，所以islands可能会多选，需要后续进一步处理
+        keep_islands_between_z(tmp_obj, result.under_co, result.nipple_co)
+
+        # 选中上面一圈顶点（边长最大的圈）并处理
+        # todo 就是上面一圈顶点即可 后续可合并
+        upper_ring_verts = get_upper_ring_verts(tmp_obj, z_max)
+        process_bust_line(tmp_obj, upper_ring_verts)
+
+        # 获取下面一圈顶点，但顶点可能有多个圈，获取圈中顶点平均 y 值更靠后的那个圈的顶点
+        # （防止胸部过大的干扰）（todo 如果有两个圈一大一小 则选择大的）
+        under_ring_verts = get_under_ring_verts(tmp_obj, z_min)
+        process_bust_line(tmp_obj, under_ring_verts)
+
+        # 再次获取上圈和下圈
+        upper_ring_verts = get_upper_ring_verts(tmp_obj, z_max)
+        under_ring_verts = get_under_ring_verts(tmp_obj, z_min)
+
+        # 删除圈外顶点
+        bm = bmesh.new()
+        bm.from_mesh(tmp_obj.data)
+        bm.verts.ensure_lookup_table()
+        keep = upper_ring_verts | under_ring_verts
+        verts_to_delete = [v for v in bm.verts if v.index not in keep]
+        bmesh.ops.delete(bm, geom=verts_to_delete, context='VERTS')
+
+        # 删除度数 <= 1 的顶点
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        loose_verts = [v for v in bm.verts if len(v.link_edges) <= 1]
+        while loose_verts:
+            bmesh.ops.delete(bm, geom=loose_verts, context='VERTS')
+            loose_verts = [v for v in bm.verts if len(v.link_edges) <= 1]
+
+        bm.to_mesh(tmp_obj.data)
+        tmp_obj.data.update()
+        bm.free()
+
+        # 计算上胸围
+        upper_ring_verts = get_upper_ring_verts(tmp_obj, z_max)
+        upper_bust = get_ring_edge_length(tmp_obj, upper_ring_verts)
+
+        # 计算下胸围
+        under_ring_verts = get_under_ring_verts(tmp_obj, z_min)
+        under_bust = get_ring_edge_length(tmp_obj, under_ring_verts)
+
+        # 取消顶点选中
+        deselect_verts(tmp_obj)
+
+        # 围差
+        bust_diff = upper_bust - under_bust if upper_bust and under_bust else None
+        bust_diff_cm = bust_diff * 100 if bust_diff else None
+
+        # 计算罩杯
+        cup = None
+        if bust_diff_cm:
+            for limit, c in STANDARD_CUP_LIST:
+                if bust_diff_cm < limit:
+                    cup = c
+                    break
+
+        # 解除临时对象与源对象的关联
+        tmp_obj.name = f"{index}_{BREAST_TMP_OBJ_NAME}_{result.threshold}_{cup if cup else 'None'}"
+        world_matrix = tmp_obj.matrix_world.copy()
+        tmp_obj.parent = None
+        tmp_obj.matrix_world = world_matrix
+
+        # 保存结果
+        result.cup = cup
+        result.upper_bust = upper_bust
+        result.under_bust = under_bust
+        result.bust_diff = bust_diff
+        result.cup_index = get_standard_cup_index(cup)
+        result.tmp_obj_for_base_body = tmp_obj
+        cups.append(cup)
+
+    return results
+
+
+def is_closed_ring(group, edge_count):
+    """判断一个组是否已经是闭合环：顶点数 == 边数"""
+    return edge_count == len(group)  # 闭合环的边数恰好等于顶点数
+
+
+def get_rings_at_z(obj, z_target, tol=1e-6):
+    """获取 z ≈ z_target 处所有顶点圈，返回 list of (group_set, total_length)"""
+
+    candidates = {v.index: v for v in obj.data.vertices if abs(v.co.z - z_target) < tol}
+    if not candidates:
+        return []
+
+    groups = []
+    index_to_group = {}
+    group_length = []
+    group_edge_count = []  # 与 groups 一一对应，存放该圈已收录的边数
+
+    for edge in obj.data.edges:
+        v0, v1 = edge.vertices[0], edge.vertices[1]
+        if v0 not in candidates or v1 not in candidates:
+            continue
+
+        length = (candidates[v0].co - candidates[v1].co).length
+        g0 = index_to_group.get(v0)
+        g1 = index_to_group.get(v1)
+
+        # 1. 处理边 A-B → 新建组0: {A, B}
+        # 2. 处理边 C-D → 新建组1: {C, D}   ← C和D还不知道自己和A、B是同一个圈
+        # 3. 处理边 B-C → B在组0，C在组1 → 合并！组0变成 {A, B, C, D}
+        # 4. 处理边 D-A → 两端都已在组0 → g0==g1
+        if g0 is None and g1 is None:
+            # 两端都还没有归属，新建一个圈
+            groups.append({v0, v1})
+            group_length.append(length)
+            group_edge_count.append(1)  # 新圈第一条边
+            index_to_group[v0] = len(groups) - 1
+            index_to_group[v1] = len(groups) - 1
+
+        elif g0 is None:
+            # v0 没有归属，并入 v1 所在的圈
+            groups[g1].add(v0)
+            group_length[g1] += length
+            group_edge_count[g1] += 1
+            index_to_group[v0] = g1
+
+        elif g1 is None:
+            # v1 没有归属，并入 v0 所在的圈
+            groups[g0].add(v1)
+            group_length[g0] += length
+            group_edge_count[g0] += 1
+            index_to_group[v1] = g0
+
+        elif g0 != g1:
+            # 两端分属不同的圈，检查两个圈是否都已经闭合
+            r0_closed = is_closed_ring(groups[g0], group_edge_count[g0])
+            r1_closed = is_closed_ring(groups[g1], group_edge_count[g1])
+            if r0_closed and r1_closed:
+                # 两个圈都已闭合，这条边是跨圈连接边，跳过，不合并
+                continue
+            # 否则正常合并
+            groups[g0] |= groups[g1]
+            group_length[g0] += group_length[g1] + length
+            group_edge_count[g0] += group_edge_count[g1] + 1
+            for idx in groups[g1]:
+                index_to_group[idx] = g0
+            groups[g1] = set()
+            group_length[g1] = 0.0
+            group_edge_count[g1] = 0
+
+        else:
+            # g0 == g1，两端在同一个圈，这条边是闭合边，只累加边长和边数
+            group_length[g0] += length
+            group_edge_count[g0] += 1
+
+    return [(g, l) for g, l in zip(groups, group_length) if g]
+
+
+def get_upper_ring_verts(obj, z_target, tol=1e-6):
+    """返回 z ≈ z_target 处边长总和最大的顶点圈的索引集合"""
+    rings = get_rings_at_z(obj, z_target, tol)
+    if not rings:
+        return set()
+    best_group = max(rings, key=lambda p: p[1])[0]  # 取总边长最大的圈
+    return set(best_group)
+
+
+def get_under_ring_verts(obj, z_target, tol=1e-6):
+    """返回 z ≈ z_target 处平均 y 值最大（最靠后）的顶点圈的索引集合
+    todo 如果有两个圈一大一小则选择大的
+    """
+    candidates = {v.index: v for v in obj.data.vertices if abs(v.co.z - z_target) < tol}
+    rings = get_rings_at_z(obj, z_target, tol)
+    if not rings:
+        return set()
+    best_group = max(rings, key=lambda p: sum(candidates[i].co.y for i in p[0]) / len(p[0]))[0]
+    return set(best_group)
+
+
+def deselect_verts(obj):
+    for v in obj.data.vertices:
+        v.select = False
+    for e in obj.data.edges:
+        e.select = False
+    for p in obj.data.polygons:
+        p.select = False
+    obj.data.update()
+
+
+def get_ring_edge_length(obj, ring_verts):
+    """计算指定顶点圈的总边长"""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+
+    total = sum(
+        e.calc_length() for e in bm.edges
+        if e.verts[0].index in ring_verts and e.verts[1].index in ring_verts
+    )
+    bm.free()
+    return total
+
+
+def keep_islands_between_z(tmp_obj, under_co, nipple_co):
+    """
+    保留 under_co、nipple_co 所在孤岛，删除其余孤岛
+    """
+    bm = bmesh.new()
+    bm.from_mesh(tmp_obj.data)
+    bm.verts.ensure_lookup_table()
+
+    try:
+        min_vert = min(bm.verts, key=lambda v: (v.co - under_co).length_squared)
+        max_vert = min(bm.verts, key=lambda v: (v.co - nipple_co).length_squared)
+
+        keep_verts = (
+                set(get_mesh_island_verts(min_vert))
+                | set(get_mesh_island_verts(max_vert))
+        )
+
+        delete_verts = [v for v in bm.verts if v not in keep_verts]
+
+        if delete_verts:
+            bmesh.ops.delete(
+                bm,
+                geom=delete_verts,
+                context="VERTS",
+            )
+
+        bm.to_mesh(tmp_obj.data)
+        tmp_obj.data.update()
+
+    finally:
+        bm.free()
+
+
+def get_mesh_island_verts(start_vert):
+    island = set()
+    stack = [start_vert]
+
+    while stack:
+        v = stack.pop()
+
+        if v in island:
+            continue
+
+        island.add(v)
+
+        for e in v.link_edges:
+            stack.append(e.other_vert(v))
+
+    return island
+
+
+def crop_mesh_by_z(obj, z_min, z_max):
+    """获取 z_min ~ z_max 之间的部分"""
+    mesh = obj.data
+
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+
+    geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
+
+    # 删除 z > z_max
+    bmesh.ops.bisect_plane(
+        bm,
+        geom=geom,
+        plane_co=(0, 0, z_max),
+        plane_no=(0, 0, 1),
+        clear_outer=True,
+        clear_inner=False,
+    )
+
+    geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
+
+    # 删除 z < z_min
+    bmesh.ops.bisect_plane(
+        bm,
+        geom=geom,
+        plane_co=(0, 0, z_min),
+        plane_no=(0, 0, 1),
+        clear_outer=False,
+        clear_inner=True,
+    )
+
+    bm.to_mesh(mesh)
+    mesh.update()
+    bm.free()
+
+
+class AnalysisOperator(bpy.types.Operator):
+    bl_idname = "mmd_jiggle_tools.analysis"  # 引用时的唯一标识符
+    bl_label = "分析"  # 显示名称（F3搜索界面，不过貌似需要注册，和panel中显示的内容区别开）
+    bl_description = "分析模型胸部尺码"
+    bl_options = {'REGISTER', 'UNDO'}  # 启用撤销功能
+
+    def execute(self, context):
+        self.main(context)
+        return {'FINISHED'}  # 让Blender知道操作已成功完成
+
+    def main(self, context):
+        start_time = time.time()
+        scene = context.scene
+        props = scene.mmd_jiggle_tools_analysis
+        self.analyze(context, props)
+        total_time = time.time() - start_time
+        print(f"（总耗时 {total_time:.2f}s）。")
+
+    def analyze(self, context, props):
+        """
+        分析胸部大小。
+        结果并不精确，视情况可能更大或更小，但一定程度上起到了参考作用。
+
+        胸部指在胸部顶点组中，权重高于阈值的顶点所构成的网格。
+        通常情况下，将胸部简化为半球形，上下乳点差为2r，以此来作为胸部大小的参考。
+        但束腰束胸等情况，可能会导致上下乳点的y值差与实际情况相比过小，罩杯计算时会有影响，但对于关节上下限的计算无太多影响。
+        """
+        active_object = bpy.context.active_object
+        analysis_type = props.type
+        remove_tmp = props.remove_tmp
+
+        # 参数校验
+        err, data = validate_analysis_param(active_object)
+        if err:
+            self.report({'ERROR'}, err)
+            return
+        source_objs = data["source_objs"]
+        obj_vgs_map = data["obj_vgs_map"]
+
+        # 预处理
+        obj_visibility_map = preprocess(active_object, source_objs)
+
+        # 根据权重阈值的不同，多次分析胸部大小。
+        batch_result = batch_do_analysis(obj_vgs_map, analysis_type)
+        if batch_result.status != AnalysisStatus.OK:
+            self.report({'ERROR'}, batch_result.msg)
+            return
+
+        # 筛选结果，或进一步分析后再筛选
+        results = batch_result.results
+        if analysis_type == "DEFAULT":
+            result, cups, cup_inners = filter_results(results)
+        else:
+            results = further_process_for_base_body(source_objs, results)
+            result, cups, cup_inners = filter_results(results)
+
+        nipple_co = result.nipple_co
+        under_co = result.under_co
+        cup = result.cup
+
+        # 选中源对象中的对应顶点
+        select_verts(source_objs, [nipple_co, under_co])
+
+        # 根据flag删除临时对象
+        remove_tmp_obj(results, remove_tmp, analysis_type)
+
+        # 填充参数
+        breast_x = result.max_x
+        breast_y = under_co.y - nipple_co.y
+        breast_z = (nipple_co.z - under_co.z) * 2
+        if context.scene.mmd_jiggle_tools_set_rgba.jiggle_adjustment_mode == 'CUSTOM_SIMPLIFY':
+            context.scene.mmd_jiggle_tools_set_rgba.breast_x = breast_x
+            context.scene.mmd_jiggle_tools_set_rgba.breast_y = breast_y
+            context.scene.mmd_jiggle_tools_set_rgba.breast_z = breast_z
+        elif context.scene.mmd_jiggle_tools_set_rgba.jiggle_adjustment_mode == 'CUSTOM':
+            context.scene.mmd_jiggle_tools_set_rgba.limit_lin_x_lower = -breast_x * 2
+            context.scene.mmd_jiggle_tools_set_rgba.limit_lin_x_upper = breast_x * 2
+            context.scene.mmd_jiggle_tools_set_rgba.limit_lin_y_lower = -breast_z * 2
+            context.scene.mmd_jiggle_tools_set_rgba.limit_lin_y_upper = breast_z * 2
+            context.scene.mmd_jiggle_tools_set_rgba.limit_lin_z_lower = -breast_y
+            context.scene.mmd_jiggle_tools_set_rgba.limit_lin_z_upper = breast_y
+
+        # 构建显示消息
+        msg = build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups)
+        self.report({'INFO'}, "\n".join(msg))
+
+        # 后处理
+        postprocess(active_object, obj_visibility_map)
+
+
+def build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups):
+    msg = []
+    msg.append(f"尺码: {cup}")
+    if analysis_type == "DEFAULT":
+        breast_x = result.max_x
+        breast_y = under_co.y - nipple_co.y
+        breast_z = (nipple_co.z - under_co.z) * 2
+
+        msg.append(f"单侧胸宽: {round(breast_x, 6)} m")
+        msg.append(f"胸部深度: {round(breast_y, 6)} m")
+        msg.append(f"胸部高度: {round(breast_z, 6)} m")
+        msg.append(f"尺码范围: {cups}")
+        msg.append(f"尺码范围（引入内侧点）: {cup_inners if cup_inners else []}")
+        msg.append("注：")
+        msg.append("1：选中网格对象并进入编辑模式，可查看参考点的选取（必要时可切换透视模式）")
+        msg.append("2：由于参考点的选取误差及尺码计算的简化，结果可能与实际存在偏差")
+        msg.append("3：尺码范围指逐步扩展胸部选择范围后，得到的尺码集合")
+        msg.append("4：尺码指尺码范围的前两种结果中，出现次数较多的那一种")
+        msg.append("5：单侧胸宽、胸部深度、胸部高度为当前尺码下的测量值")
+        msg.append("6：若束胸、束腰等服装影响尺码判断，可在引入内侧点的尺码范围内选取尺码")
+        msg.append("7：测量值如有偏差，请在未引入内侧点的尺码范围内手动校准")
+
+        total_msg = build_log_table(results,
+                                    ("Status", "Threshold", "Side Width", "Depth", "Height", "Size", "Size Inner"),
+                                    fill_row)
+        print(total_msg)
+    else:
+        upper_bust = result.upper_bust
+        under_bust = result.under_bust
+        bust_diff = result.bust_diff
+        msg.append(f"上胸围: {round(upper_bust * 100, 2) if upper_bust else 'None'} cm")
+        msg.append(f"下胸围: {round(under_bust * 100, 2) if under_bust else 'None'} cm")
+        msg.append(f"围差: {round(bust_diff * 100, 2) if bust_diff else 'None'} cm")
+
+        # todo 测试用 后续移除
+        total_msg = build_log_table(results,
+                                    ("Status", "Threshold", "Side Width", "Depth", "Height", "Size", "Size Inner"),
+                                    fill_row)
+        print(total_msg)
+
+        total_msg = build_log_table(results,
+                                    ("Status", "Threshold", "Upper Bust", "Under Bust", "Bust Diff", "Size"),
+                                    fill_bust_row)
+        print(total_msg)
+
+
+    return msg
+
+
+def remove_tmp_obj(results, remove_tmp, analysis_type):
+    if remove_tmp:
+        for r in results:
+            tmp_obj = r.tmp_obj
+            tmp_obj_for_base_body = r.tmp_obj_for_base_body
+            if tmp_obj:
+                bpy.data.objects.remove(tmp_obj, do_unlink=True)
+            if analysis_type != "DEFAULT" and tmp_obj_for_base_body:
+                bpy.data.objects.remove(tmp_obj_for_base_body, do_unlink=True)
+        bpy.data.collections.remove(get_collection(TMP_COLLECTION_NAME))
+        bpy.data.collections.remove(get_collection(TMP_ANALYSIS_COLLECTION_NAME))
+    else:
+        if analysis_type != "DEFAULT":
+            for r in results:
+                if r.tmp_obj:
+                    bpy.data.objects.remove(r.tmp_obj, do_unlink=True)
+            bpy.data.collections.remove(get_collection(TMP_COLLECTION_NAME))
+
+
+def safe(v):
+    return "None" if v is None else str(v)
+
+
+def fill_row(r):
+    nipple_co = r.nipple_co
+    under_co = r.under_co
+    breast_x = r.max_x
+    breast_y = None
+    breast_z = None
+    if under_co and nipple_co:
+        breast_y = under_co.y - nipple_co.y
+        breast_z = (nipple_co.z - under_co.z) * 2
+    return (
+        r.status.name,
+        r.threshold,
+        round(breast_x, 6) if breast_x else 'None',
+        round(breast_y, 6) if breast_y else 'None',
+        round(breast_z, 6) if breast_y else 'None',
+        r.cup if r.cup else 'None',
+        r.cup_inner if r.cup_inner else 'None',
+    )
+
+
+def fill_bust_row(r):
+    return (
+        r.status.name,
+        r.threshold,
+        round(r.upper_bust * 100, 2) if r.upper_bust else 'None',
+        round(r.under_bust * 100, 2) if r.under_bust else 'None',
+        round(r.bust_diff * 100, 2) if r.bust_diff else 'None',
+        r.cup if r.cup else 'None',
+    )
+
+
+def build_log_table(results, header, row_fn):
+    def safe(v):
+        return "None" if v is None else str(v)
+
+    rows = [header]
+    for r in results:
+        rows.append(tuple(safe(v) for v in row_fn(r)))
+
+    cols = len(header)
+    widths = [max(len(str(row[i])) for row in rows) for i in range(cols)]
+
+    def make_line(row):
+        return "│ " + " │ ".join(
+            str(row[i]).ljust(widths[i]) for i in range(cols)
+        ) + " │"
+
+    def make_sep(left, mid, right):
+        return left + mid.join("─" * (w + 2) for w in widths) + right
+
+    top = make_sep("┌", "┬", "┐")
+    mid = make_sep("├", "┼", "┤")
+    bottom = make_sep("└", "┴", "┘")
+
+    lines = [top]
+    for i, row in enumerate(rows):
+        lines.append(make_line(row))
+        if i == 0:
+            lines.append(mid)
+    lines.append(bottom)
+
+    return "\n".join(lines)
+
+
+def get_obj_vgs_map(objs, b_names_l):
+    """校验网格对象中是否存在指定名称的顶点组，并返回 map"""
+
+    target_names = set(b_names_l)
+    obj_vgs_map = {}
+
+    for obj in objs:
+        vg_names = {vg.name for vg in obj.vertex_groups}
+
+        hit_groups = list(target_names & vg_names)
+
+        if hit_groups:
+            obj_vgs_map[obj] = hit_groups
+
+    return obj_vgs_map
+
+
+def validate_analysis_param(active_object):
+    """参数校验"""
+    if active_object is None:
+        return "请选择模型！", None
+
+    # 根节点
+    # 获取根对象下所有的骨架和网格。扩大适用范围，不局限于MMD模型及其结构
+    root = find_ancestor(active_object)
+    if not root:
+        return "未找到模型根节点！", None
+
+    # 骨架
+    source_armatures = find_objs(root, obj_type="ARMATURE")
+    if not source_armatures:
+        return "源模型中未找到骨架！", None
+
+    # 网格
+    source_objs = find_objs(root, obj_type="MESH")
+    if not source_objs:
+        return "源模型中未找到网格！", None
+
+    # 胸部骨骼
+    breast_bones_map = get_breast_bones_map(source_armatures)
+    if not breast_bones_map:
+        return "源模型中未找到胸部骨骼！", None
+
+    # 左右骨骼拆分
+    b_names_l = []
+    b_names_r = []
+
+    for _, bones in breast_bones_map.items():
+        for bone in bones:
+            if bone.tail_local.x > 0:
+                b_names_l.append(bone.name)
+            else:
+                b_names_r.append(bone.name)
+
+    if not b_names_l:
+        return "源模型中未找到左侧胸部骨骼！", None
+
+    # 网格对象 -> 网格对象所含胸部顶点组
+    obj_vgs_map = get_obj_vgs_map(source_objs, b_names_l)
+    if not obj_vgs_map:
+        return "未找到与胸部骨骼对应的顶点组！", None
+
+    return None, {
+        "root": root,
+        "source_armatures": source_armatures,
+        "source_objs": source_objs,
+        "breast_bones_map": breast_bones_map,
+        "b_names_l": b_names_l,
+        "b_names_r": b_names_r,
+        "obj_vgs_map": obj_vgs_map,
+    }
+
+
+def preprocess(active_object, source_objs):
+    """预处理"""
+    # 备份网格的隐藏状态并全部取消隐藏
+    obj_visibility_map = {}
+    for obj in source_objs:
+        obj_visibility_map[obj] = (obj.hide_select, obj.hide_get(), obj.hide_viewport, obj.hide_render)
+        show_object(obj)
+
+    deselect_all_objects()
+    for obj in source_objs:
+        select_and_activate(obj)
+
+    # 将选择模式切换为“点”，并清空选择。
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_mode(type='VERT')
+    bpy.ops.mesh.select_all(action='DESELECT')
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    # 恢复选择
+    deselect_all_objects()
+    select_and_activate(active_object)
+
+    return obj_visibility_map
+
+
+def get_verts_influenced_by_bones(obj, bone_names, threshold):
+    """
+    获取受指定骨骼影响且总权重大于 threshold 的顶点
+    """
+    vgs = obj.vertex_groups
+
+    # 骨骼名 转为 对应顶点组索引
+    target_groups = set()
+    for name in bone_names:
+        vg = vgs.get(name)
+        if vg is not None:
+            target_groups.add(vg.index)
+
+    verts = []
+    count = 0
+    for v in obj.data.vertices:
+        total_weight = 0.0
+
+        for g in v.groups:
+            count += 1
+            # 用顶点组索引set比对，避免使用 obj.vertex_groups[g.group].name，太耗时了
+            if g.group in target_groups:
+                total_weight += g.weight
+
+        if total_weight > threshold:
+            verts.append(v)
+    return verts
+
+
+def delete_unwanted_vertices(obj, keep_vertex_indices):
+    """
+    在 Object 模式下删除不需要的顶点（只保留 keep_vertex_indices）
+    """
+
+    mesh = obj.data
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.verts.ensure_lookup_table()
+
+    keep_set = set(keep_vertex_indices)
+
+    # 选择要删除的顶点
+    delete_verts = [v for v in bm.verts if v.index not in keep_set]
+
+    # 删除顶点
+    bmesh.ops.delete(bm, geom=delete_verts, context='VERTS')
+
+    # 写回 mesh
+    bm.to_mesh(mesh)
+    bm.free()
+
+    mesh.update()
+
+
+def get_islands(bm):
+    visited = set()
+    islands = []
+
+    for face in bm.faces:
+        if face in visited:
+            continue
+
+        stack = [face]
+        island = []
+
+        while stack:
+
+            f = stack.pop()
+
+            if f in visited:
+                continue
+
+            visited.add(f)
+            island.append(f)
+
+            for e in f.edges:
+                for lf in e.link_faces:
+                    if lf not in visited:
+                        stack.append(lf)
+
+        islands.append(island)
+
+    return islands
+
+
+def island_area(island):
+    return sum(f.calc_area() for f in island)
+
+
+def get_best_island(bm):
+    """
+    获取网格的各个松散块，取松散块中面的面积最大且网格顶点数最多的那个松散块作为胸部范围（优先面积）（防止胸饰干扰）
+    """
+    islands = get_islands(bm)
+    # 没有松散块
+    if not islands:
+        return AnalysisStatus.NO_ISLANDS, None, None, None
+
+    # 最佳松散块
+    best_island = None
+    # 最佳松散块面积
+    best_island_area = -1
+    # 最佳松散块顶点数
+    best_island_v_count = -1
+    other_islands = []
+
+    # 获取下乳点所在松散块
+    for island in islands:
+        other_islands.append(island)
+        verts = set()
+        for f in island:
+            verts.update(f.verts)
+        area = island_area(island)
+        v_count = len(verts)
+        if area > best_island_area or (abs(area - best_island_area) < 1e-8 and v_count > best_island_v_count):
+            best_island = island
+            best_island_area = area
+            best_island_v_count = v_count
+
+    other_islands.remove(best_island)
+    other_island_verts = set()
+    for island in other_islands:
+        for f in island:
+            other_island_verts.update(f.verts)
+
+    # 获取下乳点所在松散块的边界顶点
+    breast_faces = best_island
+    breast_verts = set()
+    for f in breast_faces:
+        breast_verts.update(f.verts)
+
+    boundary = set()
+    breast_set = set(breast_verts)
+
+    for e in bm.edges:
+        if not e.is_boundary:
+            continue
+        if e.verts[0] in breast_set and e.verts[1] in breast_set:
+            boundary.add(e.verts[0])
+            boundary.add(e.verts[1])
+
+    # 无边界
+    if not boundary:
+        return AnalysisStatus.NO_BOUNDARY, None, None, None
+
+    return None, boundary, breast_verts, other_island_verts
+
+
+def build_uv_island_cache(bm, temp_obj):
+    """
+    构建:
+        vert -> island_id
+        island_id -> verts
+    """
+
+    uv_islands = bpy_extras.mesh_utils.mesh_linked_uv_islands(temp_obj.data)
+
+    vert_island_id = {}
+    island_verts_map = {}
+
+    for island_id, island in enumerate(uv_islands):
+
+        island_verts = set()
+
+        for fi in island:
+            island_verts.update(bm.faces[fi].verts)
+
+        island_verts_map[island_id] = island_verts
+
+        for v in island_verts:
+            vert_island_id[v] = island_id
+
+    return vert_island_id, island_verts_map
+
+
+def get_breast_nipple(bm, temp_obj, breast_verts, under_vert, other_island_verts, analysis_type):
+    """
+    获取胸部前侧参考顶点并修正。
+
+    顶点相邻的面，相互间的夹角不能小于 LINKED_FACES_THRESHOLD 度（防止胸饰的干扰）
+    顶点相邻的面，不能为服装背面（防止服装干扰，雷电将军）
+    顶点应至少和三条边相连（茉莉安_幽潮_绒尾迷梦、雷电将军）
+    顶点不能位于temp_obj的边界边上，但前侧顶点和下侧顶点位于同一个uv则可忽略这项校验（防止短款夹克的干扰，恩雅_澜风_恋恋秋行）
+
+    如果出现任意一种情况，需要将顶点删除，将剩下的顶点重新设置为 breast_verts 再筛选
+    """
+
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+
+    breast_verts_set = set(breast_verts)
+
+    vert_island_id, island_verts_map = build_uv_island_cache(bm, temp_obj)
+    under_island_id = vert_island_id.get(under_vert)
+
+    def find_upper_vert():
+        if analysis_type == "DEFAULT":
+            return min(breast_verts_set, key=lambda v: v.co.y)
+        else:
+            # 将顶点投影到直线 y = -x 上，取投影后 y 值最小的顶点 proj_vert，
+            # 将 min_y_vert 与 proj_vert 的连接边的平均边长相比较，取较小的那个（乳点处通常较为密集）
+            # 以防止因胸部较小导致肋骨凸起被误判为胸部顶点（Hina_BikiniB）
+            # 即使这样处理，乳点也可能并不处于y值较小处（如 Fubuki），但对处理结果无太大影响。
+
+            # --- 投影公式推导 ---
+            # 直线 y = -x 过原点，方向向量取 d = (1, -1)
+            # 点 p = (x, y) 投影到方向为 d 的直线上，公式为：
+            #     proj = (p·d / |d|^2) * d
+            # 其中 p·d = x*1 + y*(-1) = x - y，|d|^2 = 1^2 + (-1)^2 = 2
+            # 代入得：
+            #     proj = ((x - y) / 2) * (1, -1)
+            #          = ( (x - y) / 2,  -(x - y) / 2 )
+            # 即：
+            #     proj_x = (x - y) / 2
+            #     proj_y = (y - x) / 2
+            # 验证：proj_y = -proj_x，满足直线方程 y = -x ✓
+            # --------------------
+
+            # 原始 y 坐标最小的顶点
+            min_y_vert = min(breast_verts_set, key=lambda v: v.co.y)
+
+            # 投影到 y = -x 上 y 值最小的顶点
+            # 因为 proj_y = (y - x) / 2，要找投影 y 最小的点，
+            # 等价于找 (y - x) 最小的点（除以 2 是正数缩放，不影响最小值结果）
+            proj_vert = min(breast_verts_set, key=lambda v: v.co.y - v.co.x)
+
+            # 比较两个候选顶点 link_edges 的平均长度，取边长较小的那个
+            candidates = [min_y_vert, proj_vert]
+            return min(
+                candidates,
+                key=lambda v: sum(e.calc_length() for e in v.link_edges) / len(v.link_edges)
+            )
+
+    def check_vert(v):
+        if any(e.is_boundary for e in v.link_edges):
+            if vert_island_id.get(v) != under_island_id:
+                print("is_boundary")
+                return False
+
+        # 顶点相邻的面，不能为服装背面（雷电将军）
+        if v.link_faces and all(f.normal.y > 0 for f in v.link_faces):
+            return False
+
+        # 顶点应至少和三条边相连（茉莉安_幽潮_绒尾迷梦、雷电将军）
+        if len(upper_vert.link_edges) < 3:
+            return False
+
+        for edge in v.link_edges:
+            faces = edge.link_faces
+            if len(faces) == 2:
+                # 法线夹角
+                angle = faces[0].normal.angle(faces[1].normal, 0)
+                # 实际折角
+                dihedral = math.pi - angle
+                # 顶点相邻的面，相互间的夹角不能小于 LINKED_FACES_THRESHOLD 度
+                if dihedral < LINKED_FACES_THRESHOLD:
+                    return False
+        return True
+
+    while True:
+        if not breast_verts_set:
+            return AnalysisStatus.NO_BREAST_VERTS_AFTER_DELETE_INVALID, None, None
+
+        upper_vert = find_upper_vert()
+
+        if check_vert(upper_vert):
+            break
+
+        print("⚠ 上乳点的选取存在干扰，删除所在顶点并重新筛选")
+        breast_verts_set -= {upper_vert}
+        other_island_verts -= {upper_vert}
+        bmesh.ops.delete(bm, geom=[upper_vert], context='VERTS')
+        bm.to_mesh(temp_obj.data)
+        temp_obj.data.update()
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+
+    return None, upper_vert, breast_verts_set
+
+
+def get_breast_cleavage(max_x, breast_verts, other_island_verts):
+    """
+    获取胸部内侧参考顶点
+    获取x在0~abs(max_x)/4范围内的的顶点列表并按照x大小排序
+    默认取最左侧顶点作为内侧顶点，这种情况下x的增长对应胸型凸起，适用于素体等着衣较少的情况的乳沟的选取。
+    如果穿了服装，则取从左到右时的局部峰值的最大值作为内侧顶点
+    """
+
+    verts = set()
+    verts.update(other_island_verts)
+    verts.update(breast_verts)
+
+    # 获取x在 0~max_x/10 范围内的顶点，即靠近中线的区域
+    denominator = 10
+    inner_verts = [v for v in verts if 0 <= abs(v.co.x) <= max_x / denominator]
+
+    if not inner_verts:
+        return AnalysisStatus.NO_BREAST_INNER, None
+
+    # 按 x 从小到大排序（从中线向外）
+    inner_verts.sort(key=lambda v: v.co.x)
+
+    # 默认取最左侧顶点（x最小，最靠近中线）
+    best_cleavage_vert = inner_verts[0]
+
+    # 获取局部峰值的最大值（仅局部峰值无法应对服装网格结构较为复杂的情况，如雷电将军）
+    for i in range(1, len(inner_verts) - 1):
+        prev_y = inner_verts[i - 1].co.y
+        curr_y = inner_verts[i].co.y
+        next_y = inner_verts[i + 1].co.y
+
+        if curr_y >= prev_y and curr_y >= next_y:
+            cleavage_vert = inner_verts[i]
+            if best_cleavage_vert.co.y < cleavage_vert.co.y:
+                best_cleavage_vert = cleavage_vert
+
+    return None, best_cleavage_vert
+
+
+def do_analysis(obj_vgs_map, threshold, analysis_type):
+    """分析胸部大小"""
+
+    # 网格对象 -> 胸部范围（高于权重阈值的顶点）
+    obj_verts_map = {}
+    for source_obj, vg_names in obj_vgs_map.items():
+        source_vertices = get_verts_influenced_by_bones(source_obj, vg_names, threshold)
+        if not source_vertices:
+            continue
+        obj_verts_map[source_obj] = source_vertices
+
+    vg_names_l = sorted({vg for vgs in obj_vgs_map.values() for vg in vgs})
+    if not obj_verts_map:
+        return AnalysisResult(
+            status=AnalysisStatus.NO_BREAST_VERTS,
+            msg=f"无法获取有效胸部网格范围！请检查顶点组中是否存在顶点。顶点组名称参考：{vg_names_l}",
+            threshold=threshold
+        )
+
+    # 创建临时胸部对象
+    tmp_col, tmp_obj, temp_mesh = create_tmp_obj(obj_verts_map)
+    bm = bmesh.new()
+    bm.from_mesh(temp_mesh)
+    bm.faces.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+
+    # 获取下乳点所在松散块
+    status, boundary, breast_verts, other_island_verts = get_best_island(bm)
+    if status in (AnalysisStatus.NO_ISLANDS, AnalysisStatus.NO_BOUNDARY):
+        bpy.data.objects.remove(tmp_obj, do_unlink=True)
+        bpy.data.collections.remove(tmp_col)
+        msg = "未找到胸部网格松散块！" if status == AnalysisStatus.NO_ISLANDS else "未找到胸部网格松散块的边界顶点！"
+        return AnalysisResult(status=status, msg=msg, threshold=threshold)
+
+    # 获取胸部宽度
+    max_x = max(v.co.x for v in breast_verts if v.co.x >= 0)
+
+    # 获取胸部下侧参考顶点（松散块中，z最小且位于边界边上、且位于胸部内侧的点）。
+    lower = get_breast_lower(max_x, boundary)
+    lower_co = lower.co
+
+    # 获取胸部前侧参考顶点并修正
+    status, nipple, breast_verts = get_breast_nipple(bm, tmp_obj, breast_verts, lower, other_island_verts,
+                                                     analysis_type)
+    if status == AnalysisStatus.NO_BREAST_VERTS_AFTER_DELETE_INVALID:
+        return AnalysisResult(status=status, msg="胸部网格结构复杂！移除无效顶点后，无剩余胸部网格", threshold=threshold)
+    nipple_co = nipple.co
+
+    # 获取胸部内侧顶点，没有也无所谓
+    inner_co = None
+    status, inner_vert = get_breast_cleavage(max_x, breast_verts, other_island_verts)
+    if inner_vert:
+        inner_co = inner_vert.co
+
+    bm.free()
+
+    lower_nipple_diff_y = (lower_co.y - nipple_co.y) * 2 * 100
+    cup, cup_index = next((c, i) for i, (limit, c) in enumerate(CUP_LIST) if lower_nipple_diff_y < limit)
+    cup_inner = None
+    cup_inner_index = None
+    if inner_vert:
+        inner_nipple_diff_y = (inner_co.y - nipple_co.y) * 2 * 100
+        cup_inner, cup_inner_index = next(
+            (c, i) for i, (limit, c) in enumerate(CUP_LIST) if inner_nipple_diff_y < limit)
+    return AnalysisResult(
+        status=AnalysisStatus.OK,
+        threshold=threshold,
+        nipple_co=nipple_co.copy(),
+        under_co=lower_co.copy(),
+        inner_co=inner_co.copy() if inner_co else None,
+        max_x=max_x,
+        cup=cup,
+        cup_index=cup_index,
+        cup_inner=cup_inner,
+        cup_inner_index=cup_inner_index,
+        tmp_obj=tmp_obj,
+    )
+
+
+def get_breast_lower(max_x, boundary):
+    """获取胸部下侧顶点"""
+
+    center_x = max_x / 2
+
+    lower_verts = []
+    for denominator in range(10, 1, -1):
+        ratio = 1 / denominator
+        lower_verts = [v for v in boundary if center_x - max_x * ratio <= abs(v.co.x) <= center_x + max_x * ratio]
+        if lower_verts:
+            break
+
+    lower_vert = min(
+        lower_verts,
+        key=lambda v: v.co.z
+    )
+    return lower_vert
+
+
+def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None):
+    """创建临时胸部对象"""
+
+    # 获取临时集合，在临时集合中进行模型的处理
+    tmp_col = get_collection(TMP_ANALYSIS_COLLECTION_NAME)
+
+    # 从原模型中，复制胸部网格，便于后续对这部分内容进行编辑
+    tmp_part_objs = []
+
+    if delete_unwanted_flag:
+        for source_obj, source_vertices in obj_verts_map.items():
+            tmp_part_obj = copy_obj(source_obj, tmp_col)
+            keep_indices = [v.index for v in source_vertices]
+            delete_unwanted_vertices(tmp_part_obj, keep_indices)
+            tmp_part_objs.append(tmp_part_obj)
+    else:
+        for source_obj in source_objs:
+            tmp_part_obj = copy_obj(source_obj, tmp_col)
+            tmp_part_objs.append(tmp_part_obj)
+
+    deselect_all_objects()
+    for tmp_part_obj in tmp_part_objs:
+        select_and_activate(tmp_part_obj)
+    bpy.ops.object.join()
+
+    tmp_obj = bpy.context.view_layer.objects.active
+    tmp_obj.name = BREAST_TMP_OBJ_NAME
+    temp_mesh = tmp_obj.data
+
+    # 排除形态键干扰
+    if tmp_obj.data.shape_keys:
+        # 防止 Operator bpy.ops.object.shape_key_remove.poll() failed, context is incorrect
+        tmp_obj.active_shape_key_index = 0
+        bpy.ops.object.shape_key_remove(all=True, apply_mix=True)
+
+    bm = bmesh.new()
+    bm.from_mesh(temp_mesh)
+    bm.verts.ensure_lookup_table()
+
+    # 按距离合并顶点，防止松散块过多，提高胸部乳点定位的准确性
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001)
+    # 删除共享顶点的重合面，例如：3个顶点却构成了2个面，防止边界边的获取出现异常（符玄）
+    seen_faces = {}
+    faces_to_delete = []
+    for f in bm.faces:
+        # 用顶点索引的frozenset作为面的唯一标识
+        key = frozenset(v.index for v in f.verts)
+        if key in seen_faces:
+            faces_to_delete.append(f)
+        else:
+            seen_faces[key] = f
+
+    if faces_to_delete:
+        bmesh.ops.delete(bm, geom=faces_to_delete, context='FACES_ONLY')
+    bm.to_mesh(temp_mesh)
+    bm.free()
+    return tmp_col, tmp_obj, temp_mesh
+
+
+def batch_do_analysis(obj_vgs_map, analysis_type):
+    thresholds = [0.25, 0.2, 0.15, 0.1, 0.05, 0]
+
+    results = []
+    for threshold in thresholds:
+        result = do_analysis(obj_vgs_map, threshold, analysis_type)
+        results.append(result)
+
+    if all(r.status != AnalysisStatus.OK for r in results):
+        # 按 status 去重
+        seen = set()
+        unique_results = []
+
+        for r in results:
+            if r.status in seen:
+                continue
+            seen.add(r.status)
+            unique_results.append(r)
+
+        # 只有一个错误类型
+        if len(unique_results) == 1:
+            msg = unique_results[0].msg
+
+        # 多个错误类型：按 thresholds 拼接对应 msg
+        else:
+            msg_parts = []
+            for t, r in zip(thresholds, results):
+                msg_parts.append(f"[权重阈值={t}] {r.msg}")
+
+            msg = "\n".join(msg_parts)
+
+        return BatchAnalysisResult(
+            status=AnalysisStatus.ERROR,
+            msg=msg
+        )
+    return BatchAnalysisResult(
+        status=AnalysisStatus.OK,
+        results=results
+    )
+
+
+def filter_results(results):
+    """过滤多次执行结果，取最合适的那个"""
+    results = [r for r in results if r.status == AnalysisStatus.OK and r.cup is not None]
+    results.sort(key=lambda r: r.threshold, reverse=True)
+    cups = [r.cup for r in results]
+    cup_inners = [r.cup_inner for r in results if r.cup_inner is not None]
+
+    lower_bound_index = results[0].cup_index
+
+    lower_count = 0
+    lower_bound_next_index = None
+    lower_count_plus_1 = 0
+
+    for result in results:
+        idx = result.cup_index
+
+        # 统计最小cup的连续数量
+        if idx == lower_bound_index:
+            lower_count += 1
+            continue
+
+        # 最小cup的相邻cup
+        if lower_bound_next_index is None:
+            lower_bound_next_index = idx
+
+        # 统计相邻cup的连续数量
+        if idx == lower_bound_next_index:
+            lower_count_plus_1 += 1
+        else:
+            break
+
+    # 如果最小cup连续出现多次，取稍大的，否则取相邻cup中稍小的
+    if lower_count >= lower_count_plus_1:
+        return results[lower_count - 1], cups, cup_inners
+    else:
+        return results[lower_count], cups, cup_inners
+
+
+def select_verts(objs, cos):
+    current_active_object = bpy.context.active_object
+
+    # 将目标世界坐标转为集合，方便查找
+    cos_set = {tuple(round(c, 6) for c in co) for co in cos if co is not None}
+
+    for obj in objs:
+        mw = obj.matrix_world
+
+        # 遍历顶点，匹配世界坐标后选中
+        for v in obj.data.vertices:
+            world_co = mw @ v.co
+            key = tuple(round(c, 6) for c in world_co)
+
+            if key in cos_set:
+                v.select = True
+
+    # 恢复之前激活的对象
+    if current_active_object:
+        select_and_activate(current_active_object)
+
+
+def build_connected_chain(verts):
+    """将一组无序的顶点，按照边的连接关系整理成一条有序链（列表）"""
+
+    # 把传入的顶点列表转成集合，方便后续 O(1) 判断某顶点是否属于链
+    vert_set = set(verts)
+
+    # -------------------------------------------------------
+    # 第一步：寻找链的"端点"作为起点
+    #
+    # 对于一条开放折线，两个端点各自只有 1 条边连向链内其他顶点；
+    # 中间顶点则各有 2 条这样的边。
+    # 通过统计每个顶点在 vert_set 内的邻居数量，
+    # 找到第一个邻居数 == 1 的顶点作为起点。
+    # -------------------------------------------------------
+    start = None
+    for v in verts:
+        # 统计 v 的所有关联边中，对端顶点也在 vert_set 里的边数
+        cnt = sum(1 for e in v.link_edges if e.other_vert(v) in vert_set)
+        if cnt == 1:
+            start = v  # 找到端点，从这里出发
+            break
+
+    if start is None:
+        # 所有顶点都有 2 个链内邻居，说明这是一个闭合环；
+        # 环没有天然端点，随便取第一个顶点开始即可
+        start = verts[0]
+
+    # -------------------------------------------------------
+    # 第二步：从起点出发，沿边"行走"，依次收集顶点
+    #
+    # 规则：每次只走向"在 vert_set 内、且不是上一步来的方向"的邻居，
+    # 从而保证沿链单向前进，不走回头路。
+    # -------------------------------------------------------
+    chain = []  # 最终有序链，按遍历顺序存放顶点
+    visited = set()  # 记录已访问顶点，防止闭合环时死循环
+    curr = start
+    prev = None  # 上一个顶点，用于排除回头方向
+
+    while curr and curr not in visited:
+        chain.append(curr)
+        visited.add(curr)
+
+        nxt = None
+        for e in curr.link_edges:
+            v = e.other_vert(curr)
+            # 条件：对端顶点属于链 且 不是来时的方向
+            if v in vert_set and v != prev:
+                nxt = v
+                break
+
+        prev = curr
+        curr = nxt  # 移动到下一个顶点；若无合法邻居则 curr=None，循环自然结束
+
+        # 保险措施：若收集数量远超顶点总数，说明出现意外循环，强制退出
+        if len(chain) > len(verts) + 5:
+            break
+
+    # 返回按连接顺序排列的顶点列表，可直接用于后续几何计算
+    return chain
+
+
+def cross_z(prev_v, cur_v, next_v):
+    """
+    计算三个顶点构成折角的"2D 叉积 Z 分量"。
+
+    几何意义：
+      以 cur_v 为顶点，prev_v→cur_v 为入边，cur_v→next_v 为出边，
+      叉积 Z 分量 > 0 → 向左拐（逆时针）
+      叉积 Z 分量 < 0 → 向右拐（顺时针）
+      叉积 Z 分量 = 0 → 三点共线（直行）
+
+    公式（2D 叉积）：
+      (C - P) × (N - C) 的 Z 分量
+      = (Cx-Px)*(Ny-Cy) - (Cy-Py)*(Nx-Cx)
+    """
+    p, c, n = prev_v.co, cur_v.co, next_v.co
+    # 这里只用 x、y 分量，假设折线在 XY 平面上分析
+    return (c.x - p.x) * (n.y - c.y) - (c.y - p.y) * (n.x - c.x)
+
+
+def chain_dominant_sign(chain):
+    """
+    判断整条链的"主要拐向"是逆时针(+1)还是顺时针(-1)。
+
+    原理：
+      统计链中所有中间顶点的叉积符号，正值（逆时针）多则主方向为逆时针，
+      反之为顺时针。凹点的定义就是：拐向与主方向相反的顶点。
+    """
+    pos = neg = 0  # 分别计数"向左拐"和"向右拐"的顶点个数
+    for i in range(1, len(chain) - 1):  # 跳过首尾，只看中间顶点
+        cz = cross_z(chain[i - 1], chain[i], chain[i + 1])
+        if cz > 0:
+            pos += 1  # 逆时针拐点
+        elif cz < 0:
+            neg += 1  # 顺时针拐点
+    # 多数派决定主方向
+    return 1 if pos >= neg else -1
+
+
+def build_edge_cache(chain):
+    """
+    为链上所有边建立字典缓存，加速后续的"查边/删边/加边"操作。
+
+    键（Key）：frozenset({v1, v2})
+      frozenset 是不可变集合，不关心顶点顺序：
+      frozenset({A, B}) == frozenset({B, A})，适合表示无向边。
+    值（Value）：对应的 BMEdge 对象
+    """
+    cache = {}
+    seen_verts = set(chain)  # 链上所有顶点的集合
+    for v in seen_verts:
+        for e in v.link_edges:
+            ov = e.other_vert(v)
+            if ov in seen_verts:  # 只缓存"链内边"（两端都在链上）
+                cache[frozenset((v, ov))] = e
+    return cache
+
+
+def cached_find_edge(cache, v1, v2):
+    """在缓存中查找两顶点之间的边，找不到返回 None。"""
+    return cache.get(frozenset((v1, v2)))
+
+
+def cached_remove_edge(bm, cache, v1, v2):
+    """
+    从缓存中移除边，并从 bmesh 中真正删除这条边。
+
+    为什么用 try/except？
+      在批量操作中，同一条边可能被多次尝试删除
+      （例如两个凹点共享同一条边），第二次删除时 bmesh 会抛出异常，
+      用 try/except 忽略即可。
+    """
+    key = frozenset((v1, v2))
+    e = cache.pop(key, None)
+    if e:
+        try:
+            bm.edges.remove(e)
+        except Exception:
+            pass  # 边已被删除，忽略异常
+
+
+def cached_new_edge(bm, cache, v1, v2):
+    """
+    在两顶点之间创建一条新边，并加入缓存。
+
+    先检查缓存，避免重复创建（bmesh 中创建已存在的边会报错）。
+    """
+    key = frozenset((v1, v2))
+    if key not in cache:
+        e = bm.edges.new((v1, v2))
+        cache[key] = e
+
+
+def fix_all_concave_verts(bm, chain, dominant, cache):
+    """
+    一次遍历链，找出所有凹点，批量删除并补边，使轮廓更趋于凸形。
+
+    参数：
+      bm       —— 当前 bmesh 对象
+      chain    —— 有序顶点链
+      dominant —— 主拐向（+1 逆时针 / -1 顺时针）
+      cache    —— 边缓存字典（会被原地修改）
+
+    返回：bool，True 表示本次有修改，False 表示链已经没有凹点
+    """
+
+    # ------------------------------------------------------------------
+    # 第一步：扫描所有中间顶点，标记凹点索引
+    #
+    # 凹点判定：cross_z 的符号与 dominant 相反
+    #
+    # 跳过相邻（i += 2）的原因：
+    #   若相邻两个顶点都是凹点，同时处理会导致链上出现"空洞"（断裂），
+    #   因为第 i 个凹点被删除后，第 i+1 个凹点的前驱已经改变。
+    #   跳过相邻凹点，本次只处理"间隔"凹点，下一次迭代再处理剩余的。
+    # ------------------------------------------------------------------
+    idxs_to_remove = []
+    n = len(chain)
+    i = 0  # 从0开始覆盖首尾顶点
+
+    while i < n:
+        prev = chain[(i - 1) % n]  # 闭合圈取模
+        curr = chain[i]
+        next_ = chain[(i + 1) % n]
+        cz = cross_z(prev, curr, next_)
+        if cz != 0 and (1 if cz > 0 else -1) != dominant:
+            idxs_to_remove.append(i)
+            i += 2  # 跳过相邻凹点
+        else:
+            i += 1
+
+    # 若待删除的两点恰好位于链的首尾，由于链本身是环状结构，首尾两点实际上是相邻的，因此需要先移除其中一个顶点
+    if idxs_to_remove and len(idxs_to_remove) > 1 and idxs_to_remove[0] == chain[0] and idxs_to_remove[-1] == chain[-1]:
+        idxs_to_remove.pop(0)
+    # 记录待删除的顶点用于返回
+    values_to_remove = set(chain[i] for i in idxs_to_remove)
+
+    if not idxs_to_remove:
+        return False, None
+
+    # ------------------------------------------------------------------
+    # 第二步：整理"待删边"和"待加边"
+    #
+    # 对每个凹点 chain[idx]（设为 cv）：
+    #   - 删除边：pv（前驱） ↔ cv、cv ↔ nv（后继）
+    #   - 添加边：pv ↔ nv（直接连接前后邻居，绕过凹点）
+    #
+    # 这样 cv 在逻辑上被从链中"切掉"，虽然顶点本身还在网格里，
+    # 但它不再被选中，也不再属于这条链。
+    # ------------------------------------------------------------------
+    edges_del = []  # [(frozenset_key, BMEdge), ...]
+    edges_add = []  # [(v1, v2), ...]
+    removed_verts = set()
+
+    for idx in idxs_to_remove:
+        # pv, cv, nv = chain[idx - 1], chain[idx], chain[idx + 1]
+        pv, cv, nv = chain[(idx - 1) % n], chain[idx], chain[(idx + 1) % n]
+        removed_verts.add(cv)
+
+        # 收集待删的两条边（cv 与前驱、cv 与后继）
+        for nb in (pv, nv):
+            key = frozenset((cv, nb))
+            e = cache.get(key)
+            if e:
+                edges_del.append((key, e))
+
+        # 收集待加的桥接边（前驱 ↔ 后继）
+        if frozenset((pv, nv)) not in cache:
+            edges_add.append((pv, nv))
+
+    # ------------------------------------------------------------------
+    # 第三步：统一执行删边
+    # 先全部删完再添加，避免"删了又加同一条边"的冲突
+    # ------------------------------------------------------------------
+    for key, e in edges_del:
+        cache.pop(key, None)  # 从缓存移除
+        try:
+            bm.edges.remove(e)
+        except Exception:
+            pass  # 可能已被删除（两个凹点共享边的情况），忽略
+
+    # ------------------------------------------------------------------
+    # 第四步：统一添加桥接边
+    # ------------------------------------------------------------------
+    for v1, v2 in edges_add:
+        key = frozenset((v1, v2))
+        if key not in cache:
+            try:
+                e = bm.edges.new((v1, v2))
+                cache[key] = e
+            except Exception:
+                pass  # 边创建失败时（如已存在）忽略
+
+    # ------------------------------------------------------------------
+    # 第五步：取消凹点的选中状态
+    # 凹点已被"逻辑移除"出链，视觉上也应取消高亮
+    # ------------------------------------------------------------------
+    for v in removed_verts:
+        v.select = False
+
+    return True, values_to_remove
+
+
+def segments_intersect(a1, a2, b1, b2, eps=1e-6):
+    """
+    判断两条线段在 2D 平面（XY 平面）上是否真正相交。
+
+    "真正相交"的定义：
+      - 两段在各自内部（不含端点）有且仅有一个交点
+      - 共享端点（a1==b1 等情况）不算相交，直接返回 False
+      - 平行或共线也不算相交，返回 False
+
+    参数：
+      a1, a2 : 线段 A 的两个端点（BMesh 顶点，用 .co.x / .co.y 取坐标）
+      b1, b2 : 线段 B 的两个端点
+      eps    : 浮点容差，用于判断平行以及交点是否在线段内部
+
+    返回：
+      True  —— 两段在内部相交（链出现自交）
+      False —— 不相交、平行、或仅共享端点
+    """
+
+    # -------------------------------------------------------
+    # 第一步：排除共享端点的情况
+    #
+    # 链中相邻线段天然共享一个端点（如 chain[i]-chain[i+1] 与 chain[i+1]-chain[i+2] 共享 chain[i+1]），这不是自交。
+    # -------------------------------------------------------
+    if a1 is b1 or a1 is b2 or a2 is b1 or a2 is b2:
+        return False
+
+    # -------------------------------------------------------
+    # 第二步：计算两段的方向向量
+    #
+    # 线段 A：从 a1 指向 a2，方向向量 (ax, ay)
+    # 线段 B：从 b1 指向 b2，方向向量 (bx, by)
+    # -------------------------------------------------------
+    ax, ay = a2.co.x - a1.co.x, a2.co.y - a1.co.y
+    bx, by = b2.co.x - b1.co.x, b2.co.y - b1.co.y
+
+    # -------------------------------------------------------
+    # 第三步：计算行列式（叉积的 Z 分量）
+    #
+    # denom = ax*by - ay*bx
+    #       = 向量 A × 向量 B 的 Z 分量
+    #
+    # 几何意义：
+    #   denom == 0  →  两段平行（或共线），无唯一交点
+    #   denom != 0  →  两条无限直线有唯一交点，再判断是否落在两段内部
+    # -------------------------------------------------------
+    denom = ax * by - ay * bx
+    if abs(denom) < eps:
+        return False  # 平行或共线，视为不相交
+
+    # -------------------------------------------------------
+    # 第四步：用参数方程求交点参数 t 和 u
+    #
+    # 两段的参数方程（t、u 在 [0,1] 内时点在线段上）：
+    #   P(t) = a1 + t·(a2 - a1)
+    #   Q(u) = b1 + u·(b2 - b1)
+    #
+    # 交点 = 同一个点同时落在两段上，令 P(t) = Q(u)：
+    #   a1 + t·(a2-a1) = b1 + u·(b2-b1)
+    #   t·(a2-a1) - u·(b2-b1) = b1 - a1
+    #
+    # 代入缩写：
+    #   (ax,ay) = a2-a1   （线段 A 的方向向量）
+    #   (bx,by) = b2-b1   （线段 B 的方向向量）
+    #   (cx,cy) = b1-a1   （从 a1 指向 b1 的偏移向量）
+    #   t·(a2-a1) - u·(b2-b1) = b1-a1  →  t·(ax,ay) - u·(bx,by) = (cx,cy)
+    #
+    # 拆成 x、y 分量，得方程组：
+    #   t·ax - u·bx = cx  ...(1)
+    #   t·ay - u·by = cy  ...(2)
+    #
+    # 【消去 t，求 u】(1)×ay - (2)×ax：
+    #   t·ax·ay - u·bx·ay = cx·ay
+    #   t·ax·ay - u·by·ax = cy·ax
+    #   ─────────────────────────── 相减，t 项消掉
+    #   u·(ax·by - ay·bx) = cx·ay - cy·ax
+    #   u = (cx·ay - cy·ax) / denom
+    #
+    # 【消去 u，求 t】(1)×by - (2)×bx：
+    #   t·ax·by - u·bx·by = cx·by
+    #   t·ay·bx - u·by·bx = cy·bx
+    #   ─────────────────────────── 相减，u 项消掉
+    #   t·(ax·by - ay·bx) = cx·by - cy·bx
+    #   t = (cx·by - cy·bx) / denom
+    #
+    # 其中 denom = ax·by - ay·bx（两方向向量的 2D 叉积）
+    #
+    # t、u 的含义：
+    #   t∈(0,1) 且 u∈(0,1) → 交点严格在两段内部（真正相交）
+    #   t 或 u 超出 (0,1)   → 直线相交，但交点在线段延长线上
+    #   denom = 0           → 两段平行，无唯一交点
+    # -------------------------------------------------------
+    cx, cy = b1.co.x - a1.co.x, b1.co.y - a1.co.y
+
+    t = (cx * by - cy * bx) / denom  # 交点在线段 A 上的位置比例
+    u = (cx * ay - cy * ax) / denom  # 交点在线段 B 上的位置比例
+
+    # -------------------------------------------------------
+    # 第五步：判断交点是否严格落在两段内部
+    #
+    # t ∈ (0, 1)：交点在 A 的内部（不含端点 a1, a2）
+    # u ∈ (0, 1)：交点在 B 的内部（不含端点 b1, b2）
+    #
+    # 用 eps 留出浮点容差，避免极近端点被误判为内部相交。
+    # 两个条件同时满足，才说明两段真正在内部交叉。
+    # -------------------------------------------------------
+    return eps < t < 1 - eps and eps < u < 1 - eps
+
+
+def find_first_self_intersection(chain, dirty_segs=None):
+    """
+    在整条链中扫描，找到第一对相交的线段，返回它们的索引 (i, j)。
+
+    参数：
+      chain      —— 有序顶点链
+      dirty_segs —— "脏区间"集合（需要复查的线段索引）
+                    None 表示全链扫描（首次调用时使用）；
+                    有值时只把脏区间的线段作为外层候选，内层仍对全链比较。
+                    注意：这是一个优化性取舍，可能漏掉脏区间外的新自交，
+                    由外层大循环重建链后的全扫兜底。
+
+    返回：
+      (i, j) —— 第一对相交线段的索引（线段 i 是 chain[i]→chain[i+1]）
+      None   —— 未找到自交
+    """
+    n = len(chain)
+    if dirty_segs is None:
+        candidates = range(n - 1)
+    else:
+        candidates = sorted(dirty_segs)
+
+    for i in candidates:
+        if i >= n - 1:
+            continue
+        # j 从 i+2 开始，全链比较
+        for j in range(i + 2, n - 1):
+            if segments_intersect(chain[i], chain[i + 1], chain[j], chain[j + 1]):
+                return i, j
+    return None
+
+
+def fix_self_intersection(bm, chain, i, j, cache):
+    """
+    通过"翻转子链"来解开一个自交。
+
+    原理：
+      设两条相交线段为 chain[i]→chain[i+1] 和 chain[j]→chain[j+1]，
+      子链 sub = chain[i+1..j]（含两端）。
+
+      现有连接方式（产生交叉）：
+        ... → chain[i] → chain[i+1] → ... → chain[j] → chain[j+1] → ...
+
+      翻转子链后（交叉消除）：
+        ... → chain[i] → chain[j] → ... → chain[i+1] → chain[j+1] → ...
+
+      翻转操作等价于：
+        删除边 chain[i]→chain[i+1] 和 chain[j]→chain[j+1]
+        添加边 chain[i]→chain[j] 和 chain[i+1]→chain[j+1]
+        将 chain[i+1..j] 区间的顶点列表原地反转
+
+    参数：
+      bm    —— bmesh 对象
+      chain —— 有序顶点链（会被原地修改）
+      i, j  —— 两条相交线段的索引
+      cache —— 边缓存（会被同步更新）
+
+    返回：
+      dirty —— 受影响的线段索引集合（供下次局部复查使用）
+    """
+    sub = chain[i + 1: j + 1]
+    sub_rev = list(reversed(sub))
+
+    # 删除旧边
+    pairs_del = (
+            [(chain[i], chain[i + 1])] +
+            [(sub[k], sub[k + 1]) for k in range(len(sub) - 1)] +
+            [(chain[j], chain[j + 1])]
+    )
+    for v1, v2 in pairs_del:
+        cached_remove_edge(bm, cache, v1, v2)
+
+    # 新边序列
+    pairs_add = (
+            [(chain[i], sub_rev[0])] +
+            [(sub_rev[k], sub_rev[k + 1]) for k in range(len(sub_rev) - 1)] +
+            [(sub_rev[-1], chain[j + 1])]
+    )
+    for v1, v2 in pairs_add:
+        cached_new_edge(bm, cache, v1, v2)
+
+    # 更新 chain 中对应位置（原地修改，省去重建链）
+    chain[i + 1: j + 1] = sub_rev
+
+    # 返回受影响的线段索引（局部复查用）
+    dirty = set(range(max(0, i - 1), min(len(chain) - 1, j + 2)))
+    return dirty
+
+
+def process_bust_line(obj, ring_verts):
+    max_iter = 1000
+    mesh = obj.data
+
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+
+    verts = [bm.verts[i] for i in ring_verts if bm.verts[i].link_edges]  # 从传入的索引集合取顶点
+    for iteration in range(max_iter):
+        if len(verts) < 3:
+            break
+
+        chain = build_connected_chain(verts)
+        if len(chain) < 3:
+            break
+
+        cache = build_edge_cache(chain)
+
+        # --- 阶段一：消除所有自交（局部复查） ---
+        dirty = None  # 首次全扫
+        si_fixed = False  # 标记本轮是否修复了自交
+        for _ in range(max_iter):
+            cross = find_first_self_intersection(chain, dirty_segs=dirty)
+            if not cross:
+                break
+            dirty = fix_self_intersection(bm, chain, cross[0], cross[1], cache)
+            si_fixed = True
+
+        if si_fixed:
+            bm.to_mesh(mesh)
+            mesh.update()
+            bm.verts.ensure_lookup_table()
+            bm.edges.ensure_lookup_table()
+            continue  # 自交修完后重建链，再判凹点
+
+        # --- 阶段二：批量消除凹点 ---
+        dominant = chain_dominant_sign(chain)
+        changed, values_to_remove = fix_all_concave_verts(bm, chain, dominant, cache)
+        if changed:
+            if values_to_remove:
+                # 更新verts范围，避免无法构成链
+                verts[:] = [v for v in verts if v not in values_to_remove]
+            bm.to_mesh(mesh)
+            mesh.update()
+            bm.verts.ensure_lookup_table()
+            bm.edges.ensure_lookup_table()
+        else:
+            break
+
+    bm.to_mesh(mesh)
+    mesh.update()
+    bm.free()
