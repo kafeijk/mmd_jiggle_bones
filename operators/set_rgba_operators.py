@@ -12,7 +12,6 @@ from .analysis_operators import preprocess
 from .analysis_operators import batch_do_analysis
 from .analysis_operators import AnalysisStatus
 from .analysis_operators import filter_results
-from .analysis_operators import remove_tmp_obj
 from ..utils import *
 
 
@@ -251,9 +250,9 @@ def analyze_breast(root):
     deselect_all_objects()
     select_and_activate(root)
 
-    err, data = validate_analysis_param(root)
-    if err:
-        return err, None
+    err_msg, data = validate_analysis_param(root)
+    if err_msg:
+        return err_msg, None
 
     source_objs = data["source_objs"]
     obj_vgs_map = data["obj_vgs_map"]
@@ -267,7 +266,7 @@ def analyze_breast(root):
     analysis_result, _, _ = filter_results(batch_result.results)
 
     # 删除临时对象
-    remove_tmp_obj(batch_result.results, True, "DEFAULT")
+    clean_collection([TMP_COLLECTION_NAME,TMP_ANALYSIS_COLLECTION_NAME])
 
     return None, analysis_result
 

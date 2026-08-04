@@ -1,3 +1,4 @@
+import functools
 import math
 import re
 import time
@@ -74,7 +75,7 @@ BREAST_TMP_OBJ_NAME = "BREAST_TMP"
 
 # 胸部尺码判定列表
 # 每次递增2。
-# 如果每次递增设置为2.5，整体罩杯会变小，由于上下乳点所对应的胸廓后背差其实也很大，所以让每次递增数变小一些，使罩杯的变化更明显一些。
+# 如果每次递增设置为2.5，整体罩杯会变小，由于乳首与乳根所对应的胸廓差、背部曲线差其实也很大，所以让每次递增数变小一些，使罩杯的变化更明显一些。
 CUP_LIST = [
     (2, "AA"),
     (4, "A"),
@@ -149,11 +150,7 @@ STANDARD_CUP_INDEX_MAP= {v: i for i, (k, v) in enumerate(STANDARD_CUP_LIST)}
 def get_standard_cup_index(value):
     return CUP_INDEX_MAP.get(value, -1)
 
-# 胸部权重阈值（用于胸部尺码分析
-# 设置为0会导致芙提雅_烈兔的判定偏大
-WEIGHT_THRESHOLD_FOR_ANALYSIS = 0.25  # todo 到底设为什么值 0也还行？ 待测试 茉莉安_幽潮_绒尾迷梦 咎冠_蜂刺蔷薇 雷电将军
-
-# 修正上乳点时，顶点关联面的角度超出何种范围时判定为有问题
+# 修正乳首时，顶点关联面的角度超出何种范围时判定为有问题
 LINKED_FACES_THRESHOLD = math.radians(130)  # 100度仍不保守，调整至120度，如雷电将军 调整至130度，如苔丝_绮幻
 
 # 模型在MMD与Blender之间的默认缩放值
@@ -545,3 +542,57 @@ def copy_obj(obj, col=None):
         col = obj.users_collection[0]
     col.objects.link(new_obj)
     return new_obj
+
+
+def timeit(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+
+        result = func(*args, **kwargs)
+
+        end = time.perf_counter()
+
+        print(f"{func.__name__} 执行耗时: {end - start:.6f} 秒")
+
+        return result
+
+    return wrapper
+
+
+def clean_collection(collections):
+    """
+    清理指定集合中的对象并删除集合。
+
+    参数:
+        collections:
+            可以是：
+            - 集合名称(str)
+            - 集合对象(bpy.types.Collection)
+            - 集合列表(list/tuple)
+    """
+
+    # 转换为列表
+    if not isinstance(collections, (list, tuple)):
+        collections = [collections]
+
+    for item in collections:
+        # 获取集合对象
+        if isinstance(item, str):
+            collection = get_collection(item)
+        else:
+            collection = item
+
+        if collection is None:
+            continue
+
+        # 遍历集合中的所有对象
+        for obj in list(collection.objects):
+            # 从集合中移除对象
+            collection.objects.unlink(obj)
+            # 从场景中删除对象
+            bpy.data.objects.remove(obj, do_unlink=True)
+        # 删除集合
+        bpy.data.collections.remove(collection)
+    # 清理未使用数据
+    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
