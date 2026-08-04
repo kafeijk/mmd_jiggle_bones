@@ -17,6 +17,8 @@ class AnalysisStatus(Enum):
     NO_BREAST_VERTS_AFTER_DELETE_INVALID = auto()
     NO_BREAST_INNER = auto()
     BREAST_MESH_COMPLEX = auto()
+    BREAST_MESH_COMPLEX_NO_UPPER_BUST = auto()
+    BREAST_MESH_COMPLEX_NO_LOWER_BUST = auto()
     ERROR = auto()
 
 
@@ -273,7 +275,8 @@ def further_process_for_base_body(source_objs, results):
             # 胸部结构复杂直接返回
             if status == AnalysisStatus.BREAST_MESH_COMPLEX:
                 result.status = AnalysisStatus.BREAST_MESH_COMPLEX
-                break
+                result.msg = "胸部网格结构复杂，请删除无关内容后重试！"
+                continue
         else:
             upper_ring_verts = idx_ring_map.keys()
         process_bust_line(tmp_obj, upper_ring_verts)
@@ -288,7 +291,8 @@ def further_process_for_base_body(source_objs, results):
             # 胸部结构复杂直接返回
             if status == AnalysisStatus.BREAST_MESH_COMPLEX:
                 result.status = AnalysisStatus.BREAST_MESH_COMPLEX
-                break
+                result.msg = "胸部网格结构复杂，请删除无关内容后重试！"
+                continue
         else:
             under_ring_verts = idx_ring_map.keys()
         process_bust_line(tmp_obj, under_ring_verts)
@@ -342,6 +346,16 @@ def further_process_for_base_body(source_objs, results):
         bm.to_mesh(tmp_obj.data)
         tmp_obj.data.update()
         bm.free()
+
+        # 如果任一上下胸围顶点数为0，则continue
+        if len(upper_ring_verts) == 0:
+            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST
+            result.msg =  "胸部网格结构复杂，无法准确获取上胸围，请删除无关内容后重试！"
+            continue
+        if len(under_ring_verts) == 0:
+            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_LOWER_BUST
+            result.msg = "胸部网格结构复杂，无法准确获取下胸围，请删除无关内容后重试！"
+            continue
 
         # 计算上胸围
         upper_ring_verts = get_upper_ring_verts(tmp_obj, nipple_z)
@@ -749,20 +763,21 @@ class AnalysisOperator(bpy.types.Operator):
         obj_visibility_map = preprocess(active_object, source_objs)
 
         # 根据权重阈值的不同，多次分析胸部尺寸。
-        batch_result = batch_do_analysis(obj_vgs_map, analysis_type)
-        results = batch_result.results
-        if batch_result.status != AnalysisStatus.OK:
+        results = batch_do_analysis(obj_vgs_map, analysis_type)
+        if all(r.status != AnalysisStatus.OK for r in results):
             clean_collection([TMP_COLLECTION_NAME,TMP_ANALYSIS_COLLECTION_NAME])
-            self.report({'ERROR'}, batch_result.msg)
+            msg = build_all_failed_msg(results)
+            self.report({'ERROR'}, msg)
             return
 
         # 分析方式为素体时，需进一步处理分析
         if analysis_type != "DEFAULT":
             # 通过上下胸围的方式，进一步处理分析
             results = further_process_for_base_body(source_objs, results)
-            if any(r.status == AnalysisStatus.BREAST_MESH_COMPLEX for r in results):
-                clean_collection([TMP_COLLECTION_NAME,TMP_ANALYSIS_COLLECTION_NAME])
-                self.report({'ERROR'}, "胸部网格结构复杂，请删除无关内容后重试！")
+            if all(r.status != AnalysisStatus.OK for r in results):
+                clean_collection([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
+                msg = build_all_failed_msg(results)
+                self.report({'ERROR'}, msg)
                 return
 
         # 从多次执行的结果中，筛选出最合适的那个结果
@@ -786,6 +801,27 @@ class AnalysisOperator(bpy.types.Operator):
         # 构建显示消息
         msg = build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups)
         self.report({'INFO'}, "\n".join(msg))
+
+
+def build_all_failed_msg(results):
+    """整理全部失败时的错误信息"""
+
+    seen = set()
+    unique_results = []
+
+    for r in results:
+        if r.status in seen:
+            continue
+        seen.add(r.status)
+        unique_results.append(r)
+
+    # 只有一种错误类型
+    if len(unique_results) == 1:
+        msg = unique_results[0].msg
+    else:
+        msg = "\n".join(f"[权重阈值={r.threshold}] {r.msg}" for r in results)
+    return msg
+
 
 def set_joint_param(context, nipple_co, under_co, result):
     """设置Joint参数到插件面板"""
@@ -1533,27 +1569,7 @@ def batch_do_analysis(obj_vgs_map, analysis_type):
         result = do_analysis(obj_vgs_map, threshold, analysis_type)
         results.append(result)
 
-    # 只要有一个成功，就直接返回
-    if any(r.status == AnalysisStatus.OK for r in results):
-        return BatchAnalysisResult(status=AnalysisStatus.OK, results=results)
-
-    # 全部失败时，整理错误信息
-    seen = set()
-    unique_results = []
-
-    for r in results:
-        if r.status in seen:
-            continue
-        seen.add(r.status)
-        unique_results.append(r)
-
-    # 只有一种错误类型
-    if len(unique_results) == 1:
-        msg = unique_results[0].msg
-    else:
-        msg = "\n".join(f"[权重阈值={t}] {r.msg}" for t, r in zip(thresholds, results))
-
-    return BatchAnalysisResult(status=AnalysisStatus.ERROR, msg=msg, results=results)
+    return results
 
 
 def filter_results(results):

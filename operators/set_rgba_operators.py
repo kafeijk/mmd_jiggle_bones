@@ -11,6 +11,7 @@ from .analysis_operators import validate_analysis_param
 from .analysis_operators import preprocess
 from .analysis_operators import batch_do_analysis
 from .analysis_operators import AnalysisStatus
+from .analysis_operators import build_all_failed_msg
 from .analysis_operators import filter_results
 from ..utils import *
 
@@ -259,11 +260,12 @@ def analyze_breast(root):
 
     preprocess(root, source_objs)
 
-    batch_result = batch_do_analysis(obj_vgs_map,"DEFAULT")
-    if batch_result.status != AnalysisStatus.OK:
-        return batch_result.msg, None
+    results = batch_do_analysis(obj_vgs_map,"DEFAULT")
+    if all(r.status != AnalysisStatus.OK for r in results):
+        msg = build_all_failed_msg(results)
+        return msg, None
 
-    analysis_result, _, _ = filter_results(batch_result.results)
+    analysis_result, _, _ = filter_results(results)
 
     # 删除临时对象
     clean_collection([TMP_COLLECTION_NAME,TMP_ANALYSIS_COLLECTION_NAME])
