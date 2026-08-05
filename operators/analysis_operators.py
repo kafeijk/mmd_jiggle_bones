@@ -252,7 +252,9 @@ def further_process_for_base_body(source_objs, results):
         z_min = min(result.nipple_co.z, result.under_co.z)
 
         # 创建临时对象
-        tmp_col, tmp_obj, temp_mesh = create_tmp_obj(None, delete_unwanted_flag=False, source_objs=source_objs)
+        tmp_obj_name = f"{index}_{BASEBODY_TMP_OBJ_NAME}_{result.threshold}_None"
+        tmp_col, tmp_obj, temp_mesh = create_tmp_obj(None, delete_unwanted_flag=False, source_objs=source_objs,
+                                                     tmp_obj_name=tmp_obj_name)
         # 切两刀，获取乳首与乳根中间的部分
         crop_mesh_by_z(tmp_obj, z_min, z_max)
         # 合并顶点，避免因切割产生的相邻顶点对后续流程造成干扰
@@ -384,7 +386,7 @@ def further_process_for_base_body(source_objs, results):
                     break
 
         # 解除临时对象与源对象的关联
-        tmp_obj.name = f"{index}_{BREAST_TMP_OBJ_NAME}_{result.threshold}_{cup if cup else 'None'}"
+        tmp_obj.name = f"{index}_{BASEBODY_TMP_OBJ_NAME}_{result.threshold}_{cup if cup else 'None'}"
         world_matrix = tmp_obj.matrix_world.copy()
         tmp_obj.parent = None
         tmp_obj.matrix_world = world_matrix
@@ -1432,7 +1434,7 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
         )
 
     # 创建临时胸部对象
-    tmp_col, tmp_obj, temp_mesh = create_tmp_obj(obj_verts_map)
+    tmp_col, tmp_obj, temp_mesh = create_tmp_obj(obj_verts_map, tmp_obj_name=DEFAULT_TMP_OBJ_NAME)
     bm = bmesh.new()
     bm.from_mesh(temp_mesh)
     bm.faces.ensure_lookup_table()
@@ -1511,7 +1513,7 @@ def get_breast_lower(max_x, boundary):
     return lower_vert
 
 
-def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None):
+def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None, tmp_obj_name="TMP"):
     """创建临时胸部对象"""
 
     # 获取临时集合，在临时集合中进行模型的处理
@@ -1538,7 +1540,7 @@ def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None):
     bpy.ops.object.join()
 
     tmp_obj = bpy.context.view_layer.objects.active
-    tmp_obj.name = BREAST_TMP_OBJ_NAME
+    tmp_obj.name = tmp_obj_name
     temp_mesh = tmp_obj.data
 
     # 排除形态键干扰
@@ -1575,8 +1577,10 @@ def batch_do_analysis(obj_vgs_map, analysis_type):
     thresholds = [0.25, 0.2, 0.15, 0.1, 0.05, 0]
 
     results = []
-    for threshold in thresholds:
+    for index, threshold in enumerate(thresholds):
         result = do_analysis(obj_vgs_map, threshold, analysis_type)
+        if result.tmp_obj:
+            result.tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_{result.cup if result.cup else 'None'}"
         results.append(result)
 
     return results
