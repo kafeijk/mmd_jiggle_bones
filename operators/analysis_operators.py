@@ -471,7 +471,14 @@ def get_rings_at_z(obj, z_target, tol=1e-6):
             group_length[g0] += length
             group_edge_count[g0] += 1
 
-    return [(g, l) for g, l in zip(groups, group_length) if g]
+        # 前面为收集环上顶点，这里再次校验环是否已经闭合
+        valid_rings = []
+        for g, length, edge_count in zip(groups, group_length, group_edge_count):
+            if not g:
+                continue
+            if is_closed_ring(g, edge_count):
+                valid_rings.append((g, length))
+        return valid_rings
 
 
 def get_upper_ring_verts(obj, z_target, tol=1e-6):
@@ -506,8 +513,8 @@ def get_rings(obj, z_target, tol=1e-6):
     return upper_rings, idx_ring_map, vertex_co_ring_map
 
 def get_under_ring_verts(obj, z_target, tol=1e-6):
-    """返回 z ≈ z_target 处平均 y 值最大（最靠后）的顶点圈的索引集合
-    todo 如果有两个圈一大一小则选择大的
+    """
+    返回 z ≈ z_target 处平均 y 值最大（最靠后）的顶点圈的索引集合
     """
     candidates = {v.index: v for v in obj.data.vertices if abs(v.co.z - z_target) < tol}
     rings = get_rings_at_z(obj, z_target, tol)
