@@ -268,7 +268,7 @@ def analyze_breast(root):
     analysis_result, _, _ = filter_results(results)
 
     # 删除临时对象
-    clean_collection([TMP_COLLECTION_NAME,TMP_ANALYSIS_COLLECTION_NAME])
+    clean_collection([TMP_ANALYSIS_COLLECTION_NAME])
 
     return None, analysis_result
 
