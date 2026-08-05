@@ -272,15 +272,10 @@ def import_pmx(filepath: str) -> bool:
 
 def export_pmx(filepath: str) -> bool:
     """导出PMX文件，失败时自动重试"""
-    v = get_mmd_tools_version()
     params = {
         'filepath': filepath,
         'scale': 12.5,
     }
-    if v < (4, 5, 2):
-        params['copy_textures'] = False
-    else:
-        params['copy_textures_mode'] = 'NONE'
 
     for attempt in range(MAX_RETRIES):
         try:
