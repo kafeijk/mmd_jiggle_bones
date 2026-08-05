@@ -727,8 +727,18 @@ def crop_mesh_by_z(obj, z_min, z_max):
 
 class AnalysisOperator(bpy.types.Operator):
     bl_idname = "mmd_jiggle_tools.analysis"  # 引用时的唯一标识符
-    bl_label = "分析"  # 显示名称（F3搜索界面，不过貌似需要注册，和panel中显示的内容区别开）
-    bl_description = "分析模型胸部尺码"
+    bl_label = "执行"  # 显示名称（F3搜索界面，不过貌似需要注册，和panel中显示的内容区别开）
+    bl_description = ("分析模型胸部尺码\n"
+                      "\n"
+                      "执行后注意事项：\n"
+                      "1：选中网格对象并进入编辑模式，可查看参考点的选取（必要时可切换透视模式）\n"
+                      "2：由于参考点的选取误差及尺码计算的简化，结果可能与实际存在偏差\n"
+                      "3：显示的结果为插件筛选后的值，切换系统控制台可查看完整执行结果\n"
+                      "4：「尺码范围」指逐步扩展胸部选择范围后，得到的尺码集合\n"
+                      "5：「尺码」指尺码范围的前两种结果中，出现次数较多的那一种\n"
+                      "6：「单侧胸宽」、「胸部深度」、「胸部高度」为当前尺码下的测量值\n"
+                      "7：若束胸、束腰等服装影响尺码判断，可在引入内侧点的尺码范围内选取尺码\n"
+                      "8：测量值如有偏差，请在未引入内侧点的尺码范围内手动校准")
     bl_options = {'REGISTER', 'UNDO'}  # 启用撤销功能
 
     def execute(self, context):
@@ -876,14 +886,6 @@ def build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inne
         msg.append(f"胸部高度: {round(breast_z, 6)} m")
         msg.append(f"尺码范围: {cups}")
         msg.append(f"尺码范围（引入内侧点）: {cup_inners if cup_inners else []}")
-        msg.append("注：")
-        msg.append("1：选中网格对象并进入编辑模式，可查看参考点的选取（必要时可切换透视模式）")
-        msg.append("2：由于参考点的选取误差及尺码计算的简化，结果可能与实际存在偏差")
-        msg.append("3：尺码范围指逐步扩展胸部选择范围后，得到的尺码集合")
-        msg.append("4：尺码指尺码范围的前两种结果中，出现次数较多的那一种")
-        msg.append("5：单侧胸宽、胸部深度、胸部高度为当前尺码下的测量值")
-        msg.append("6：若束胸、束腰等服装影响尺码判断，可在引入内侧点的尺码范围内选取尺码")
-        msg.append("7：测量值如有偏差，请在未引入内侧点的尺码范围内手动校准")
 
         total_msg = build_log_table(results,
                                     ("Status", "Threshold", "Side Width", "Depth", "Height", "Size", "Size Inner"),
