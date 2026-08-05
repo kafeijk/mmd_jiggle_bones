@@ -211,12 +211,15 @@ def process_muti_rings(tmp_obj, z_max, nipple_co, upper_rings, idx_ring_map, ver
         if len(prev_cos) == 2:
             prev0 = next((v for v in bm.verts if get_co_key(v.co) == get_co_key(prev_cos[0])), None)
             prev1 = next((v for v in bm.verts if get_co_key(v.co) == get_co_key(prev_cos[1])), None)
+            # 胸部网格结构复杂时，可能会出现相等的情况，直接continue
+            if prev0 == prev1:
+                continue
             # 添加边
             if bm.edges.get((prev0, prev1)) is None:
                 bm.edges.new((prev0, prev1))
-            bm.faces.ensure_lookup_table()
-            bm.edges.ensure_lookup_table()
-            bm.verts.ensure_lookup_table()
+                bm.faces.ensure_lookup_table()
+                bm.edges.ensure_lookup_table()
+                bm.verts.ensure_lookup_table()
     x_verts = [v for v in bm.verts if get_co_key(v.co) in x_prevs_map]
     bmesh.ops.delete(bm, geom=x_verts, context='VERTS')
     bm.faces.ensure_lookup_table()
