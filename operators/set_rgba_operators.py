@@ -14,6 +14,7 @@ from .analysis_operators import AnalysisStatus
 from .analysis_operators import build_all_failed_msg
 from .analysis_operators import filter_results
 from ..utils import *
+from ..mmd_utils import FnModel
 
 
 def get_mmd_info(root):
@@ -109,17 +110,17 @@ class SetRgbaOperator(bpy.types.Operator):
         # 获取临时集合，在临时集合中进行模型的处理
         get_collection(TMP_COLLECTION_NAME)
 
-        # 导入源模型
-        import_pmx(filepath)
-        root = bpy.context.active_object
-        armature, objs, joint_parent, rb_parent = get_mmd_info(root)
-        obj = objs[0]
-
         # 获取源模型名称
         abs_path = bpy.path.abspath(filepath)
         file_dir = os.path.dirname(bpy.path.abspath(filepath))
         file_name = os.path.basename(abs_path)
         name, ext = os.path.splitext(file_name)
+
+        # 导入源模型
+        import_pmx(filepath)
+        root = bpy.context.active_object
+        armature, objs, joint_parent, rb_parent = get_mmd_info(root)
+        obj = objs[0]
 
         # 获取源模型胸部骨骼列表
         breast_bones_map = get_breast_bones_map(armature)
@@ -146,6 +147,20 @@ class SetRgbaOperator(bpy.types.Operator):
             if bone_name not in armature.pose.bones:
                 clean_tmp_collection()
                 return name, "ERROR", f"源模型中未找到名称为“{bone_name}”的骨骼"
+
+        # 部分模型（如武器模型）可能仅包含骨骼，未定义刚体和关节。
+        # 但部分角色类型模型也可能缺少刚体/关节配置，导致rb_parent或joint_parent为空，进而影响后续处理流程。
+        # 对通过权重校验但缺少rb_parent或joint_parent的模型，按新版mmd_tools（bl_ext.blender_org.mmd_tools）的方式补充空物体。
+        if not rb_parent or not joint_parent:
+            if not rb_parent:
+                FnModel.ensure_rigid_group_object(bpy.context, root)
+            if not joint_parent:
+                FnModel.ensure_joint_group_object(bpy.context, root)
+
+            # 重新获取并显示
+            _, _, joint_parent, rb_parent = get_mmd_info(root)
+            show_object(joint_parent)
+            show_object(rb_parent)
 
         neck_bone = armature.data.bones.get(NECK_NAME)
         target_upper_body_name = neck_bone.parent.name
