@@ -471,14 +471,14 @@ def get_rings_at_z(obj, z_target, tol=1e-6):
             group_length[g0] += length
             group_edge_count[g0] += 1
 
-        # 前面为收集环上顶点，这里再次校验环是否已经闭合
-        valid_rings = []
-        for g, length, edge_count in zip(groups, group_length, group_edge_count):
-            if not g:
-                continue
-            if is_closed_ring(g, edge_count):
-                valid_rings.append((g, length))
-        return valid_rings
+    # 前面为收集环上顶点，这里再次校验环是否已经闭合
+    valid_rings = []
+    for g, length, edge_count in zip(groups, group_length, group_edge_count):
+        if not g:
+            continue
+        if is_closed_ring(g, edge_count):
+            valid_rings.append((g, length))
+    return valid_rings
 
 
 def get_upper_ring_verts(obj, z_target, tol=1e-6):
