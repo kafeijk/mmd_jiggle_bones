@@ -298,6 +298,10 @@ def set_joint_limits(result, joint_parent, props):
         # 胸部高度
         breast_z = (result.nipple_co.z - result.under_co.z) * 2
 
+        # 根据单侧胸宽、胸部深度和胸部高度等实际参数值，分别调整对应关节参数
+        # 替代此前「在默认值的基础上，使用特定比例对所有关节参数进行统一缩放（实际上只有缩）」的方式
+        # 这样可以降低上下方向的弹跳幅度，同时增强横向晃动效果
+        # 胸部尺寸参数与关节参数之间的对应关系，基于实际调试效果推算得出
         limit_lin_x_lower_mmd = -breast_x * 2 * MODEL_SCALE
         limit_lin_x_upper_mmd = breast_x * 2 * MODEL_SCALE
         limit_lin_y_lower_mmd = -breast_z * 2 * MODEL_SCALE
@@ -306,6 +310,7 @@ def set_joint_limits(result, joint_parent, props):
         limit_lin_z_upper_mmd = breast_y * MODEL_SCALE
 
     elif mode == "CUSTOM_SIMPLIFY":
+        # 与DEFAULT模式保持相同的设置逻辑，但胸部尺寸参数由用户输入
         limit_lin_x_lower_mmd = -props.breast_x * 2 * MODEL_SCALE
         limit_lin_x_upper_mmd = props.breast_x * 2 * MODEL_SCALE
         limit_lin_y_lower_mmd = -props.breast_z * 2 * MODEL_SCALE
@@ -315,10 +320,10 @@ def set_joint_limits(result, joint_parent, props):
 
     else:
         # 自定义时，参数含义与PE一致，仅做缩放处理
-        limit_lin_x_lower_mmd = props.limit_lin_x_lower *  MODEL_SCALE
-        limit_lin_x_upper_mmd = props.limit_lin_x_upper *  MODEL_SCALE
-        limit_lin_y_lower_mmd = props.limit_lin_z_lower *  MODEL_SCALE
-        limit_lin_y_upper_mmd = props.limit_lin_z_upper *  MODEL_SCALE
+        limit_lin_x_lower_mmd = props.limit_lin_x_lower * MODEL_SCALE
+        limit_lin_x_upper_mmd = props.limit_lin_x_upper * MODEL_SCALE
+        limit_lin_y_lower_mmd = props.limit_lin_z_lower * MODEL_SCALE
+        limit_lin_y_upper_mmd = props.limit_lin_z_upper * MODEL_SCALE
         limit_lin_z_lower_mmd = props.limit_lin_y_lower * MODEL_SCALE
         limit_lin_z_upper_mmd = props.limit_lin_y_upper * MODEL_SCALE
 
