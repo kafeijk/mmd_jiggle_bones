@@ -1537,9 +1537,13 @@ def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None, t
             tmp_part_objs.append(tmp_part_obj)
 
     deselect_all_objects()
-    for tmp_part_obj in tmp_part_objs:
-        select_and_activate(tmp_part_obj)
-    bpy.ops.object.join()
+    if len(tmp_part_objs) > 1:
+        for tmp_part_obj in tmp_part_objs:
+            select_and_activate(tmp_part_obj)
+        bpy.ops.object.join()
+    else:
+        # 不会出现 len(tmp_part_objs) == 0 的情况，前置逻辑已完成拦截处理
+        select_and_activate(tmp_part_objs[0])
 
     tmp_obj = bpy.context.view_layer.objects.active
     tmp_obj.name = tmp_obj_name
