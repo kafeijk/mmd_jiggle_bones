@@ -881,9 +881,9 @@ def build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inne
         breast_y = under_co.y - nipple_co.y
         breast_z = (nipple_co.z - under_co.z) * 2
 
-        msg.append(f"单侧胸宽: {round(breast_x, 6)} m")
-        msg.append(f"胸部深度: {round(breast_y, 6)} m")
-        msg.append(f"胸部高度: {round(breast_z, 6)} m")
+        msg.append(f"单侧胸宽: {round(breast_x, 3)} m")
+        msg.append(f"胸部深度: {round(breast_y, 3)} m")
+        msg.append(f"胸部高度: {round(breast_z, 3)} m")
         msg.append(f"尺码范围: {cups}")
         msg.append(f"尺码范围（引入内侧点）: {cup_inners if cup_inners else []}")
 
