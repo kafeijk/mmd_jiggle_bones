@@ -657,6 +657,17 @@ def remove_breast_bones(root, armature, rb_parent, kept_joints):
     to_delete = [eb.name for eb in edit_bones if eb.name in breast_names]
     for name in to_delete:
         rbs_to_remove.extend(bone_rbs_map.get(name, []))
+
+    # 删除骨骼前，先解除刚体子级约束的目标骨骼引用，避免执行过程中产生无效引用提示。
+    for rb in rbs_to_remove:
+        bone_name = rb.mmd_rigid.bone
+        if not bone_name or bone_name not in to_delete:
+            continue
+        for cons in rb.constraints:
+            if cons.type == "CHILD_OF":
+                cons.subtarget = ""
+
+    for name in to_delete:
         edit_bones.remove(edit_bones[name])
     bpy.ops.object.mode_set(mode='OBJECT')
 
