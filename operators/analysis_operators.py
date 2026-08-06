@@ -945,9 +945,9 @@ def fill_row(r):
     return (
         r.status.name,
         r.threshold,
-        round(breast_x, 6) if breast_x else 'None',
-        round(breast_y, 6) if breast_y else 'None',
-        round(breast_z, 6) if breast_y else 'None',
+        round(breast_x, 3) if breast_x else 'None',
+        round(breast_y, 3) if breast_y else 'None',
+        round(breast_z, 3) if breast_y else 'None',
         r.cup if r.cup else 'None',
         r.cup_inner if r.cup_inner else 'None',
     )
