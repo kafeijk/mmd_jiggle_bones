@@ -768,6 +768,7 @@ class AnalysisOperator(bpy.types.Operator):
 
         # 清理上一次执行时保留的临时对象，同时清理未使用数据，防止对执行流程造成影响，防止工程体积过大
         clean_collection([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
+        start_time = time.time()
 
         active_object = context.active_object
         analysis_type = props.type
@@ -821,7 +822,8 @@ class AnalysisOperator(bpy.types.Operator):
         postprocess(active_object, obj_visibility_map)
 
         # 构建显示消息
-        msg = build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups)
+        total_time = time.time() - start_time
+        msg = build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups,total_time)
         self.report({'INFO'}, "\n".join(msg))
 
 
@@ -873,7 +875,7 @@ def set_joint_param(context, nipple_co, under_co, result):
         settings.limit_lin_z_upper = breast_y
 
 
-def build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups):
+def build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups, total_time):
     msg = []
     msg.append(f"尺码: {cup}")
     if analysis_type == "DEFAULT":
@@ -888,9 +890,8 @@ def build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inne
         msg.append(f"尺码范围（引入内侧点）: {cup_inners if cup_inners else []}")
 
         total_msg = build_log_table(results,
-                                    ("Status", "Threshold", "Side Width", "Depth", "Height", "Size", "Size Inner"),
+                                    ("Status", "Threshold", "Side Width", "Depth", "Height", "Size", "Size (Corset)"),
                                     fill_row)
-        print(total_msg)
     else:
         upper_bust = result.upper_bust
         under_bust = result.under_bust
@@ -902,8 +903,8 @@ def build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inne
         total_msg = build_log_table(results,
                                     ("Status", "Threshold", "Upper Bust", "Under Bust", "Bust Diff", "Size"),
                                     fill_bust_row)
-        print(total_msg)
-
+    print(total_msg)
+    print(f"耗时 {total_time:.2f}s。")
 
     return msg
 
