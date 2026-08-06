@@ -172,7 +172,6 @@ class SetRgbaOperator(bpy.types.Operator):
         # 获取源模型胸部饰品信息
         accessory_breast_rel_map, kept_joints = get_accessory_info(armature, breast_bones, breast_names, joint_parent,
                                                                    rb_parent)
-
         # 导入RGBA胸部
         rgba_file_l = os.path.join(os.path.dirname(os.path.dirname(__file__)), "externals", "RGBA_L.pmx")
         import_pmx(rgba_file_l)
@@ -728,6 +727,8 @@ def repair_accessory(root, accessory_breast_rel_map, kept_joints):
     select_and_activate(armature)
     bpy.ops.object.mode_set(mode='EDIT')
     for bbc_name, bb_name in accessory_breast_rel_map.items():
+        if bb_name is None:
+            continue
         if ".L" in bb_name:
             armature.data.edit_bones.get(bbc_name).parent = armature.data.edit_bones.get(BREAST_BL_NAME_L)
         else:
@@ -765,8 +766,27 @@ def get_accessory_info(armature, breast_bones, breast_names, joint_parent, rb_pa
             if bbc.name not in breast_names and not is_dummy_bone(bbc.name):
                 accessory_breast_rel_map[bbc.name] = bb.name
 
-    # 获取胸部刚体名称列表与胸饰品刚体名称列表
+    # 获取胸部刚体名称列表
     breast_rb_names = [rb.name for rb in rb_parent.children if rb.mmd_rigid.bone in breast_names]
+
+    # 与胸部刚体连接的物理刚体所对应的骨骼，也可被算作胸饰（例如：胧嫣-瑞狐 珠光曳影）
+    # 这类模型虽然胸饰骨骼没有与胸部相连，但由于是物理演算和关节连接的方式，所以物理依然生效，但如果是「追踪骨骼」或者「物理+骨骼位置对齐」类型的刚体，则模型本身就会出问题，这里也不会考虑
+    for joint in joint_parent.children:
+        c = joint.rigid_body_constraint
+        if not c:
+            continue
+
+        for obj in (c.object1, c.object2):
+            other = c.object2 if obj == c.object1 else c.object1
+            if (obj and obj.name in breast_rb_names
+                    and other and other.name not in breast_rb_names
+                    and other.mmd_rigid.type == '1' and other.mmd_rigid.bone):
+                bone_name = other.mmd_rigid.bone
+                pb = armature.pose.bones.get(bone_name)
+                if pb:
+                    accessory_breast_rel_map[bone_name] = pb.parent.name if pb.parent else None
+
+    # 获取胸饰品刚体名称列表
     accessory_bone_names = expand_accessory_bone_names(armature, accessory_breast_rel_map)
     accessory_rb_names = [rb.name for rb in rb_parent.children if rb.mmd_rigid.bone in accessory_bone_names]
 
