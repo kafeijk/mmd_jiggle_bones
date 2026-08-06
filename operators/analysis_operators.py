@@ -1330,9 +1330,9 @@ def get_breast_nipple(bm, temp_obj, breast_verts, under_vert, other_island_verts
             )
 
     def check_vert(v):
+        # 顶点不能位于temp_obj的边界边上，但前侧顶点和下侧顶点位于同一个uv则可忽略这项校验（防止短款夹克的干扰，恩雅_澜风_恋恋秋行）
         if any(e.is_boundary for e in v.link_edges):
             if vert_island_id.get(v) != under_island_id:
-                print("is_boundary")
                 return False
 
         # 顶点相邻的面，不能为服装背面（雷电将军）
@@ -1364,7 +1364,7 @@ def get_breast_nipple(bm, temp_obj, breast_verts, under_vert, other_island_verts
         if check_vert(upper_vert):
             break
 
-        print("⚠ 乳首的选取存在干扰，删除所在顶点并重新筛选")
+        # 乳首的选取存在干扰，删除所在顶点并重新筛选
         breast_verts_set -= {upper_vert}
         other_island_verts -= {upper_vert}
         bmesh.ops.delete(bm, geom=[upper_vert], context='VERTS')

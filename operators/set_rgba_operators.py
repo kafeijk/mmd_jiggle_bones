@@ -127,7 +127,6 @@ class SetRgbaOperator(bpy.types.Operator):
         if not breast_bones_map:
             clean_tmp_collection()
             return name, "ERROR", "源模型中未找到胸部骨骼"
-        print(f"breast_bones_map:{breast_bones_map}")
         breast_bones = next(iter(breast_bones_map.values()))
         breast_names = [b.name for b in breast_bones]
 
