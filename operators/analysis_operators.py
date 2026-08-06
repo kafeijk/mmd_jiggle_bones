@@ -1481,6 +1481,13 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
         inner_nipple_diff_y = (inner_co.y - nipple_co.y) * 2 * 100
         cup_inner, cup_inner_index = next(
             (c, i) for i, (limit, c) in enumerate(CUP_LIST) if inner_nipple_diff_y < limit)
+
+    # 内侧点判别结果不够稳定，因此仅在临时对象中显示
+    cos = [nipple_co.copy(), lower_co.copy()]
+    if inner_co:
+        cos.append(inner_co.copy())
+    select_verts([tmp_obj], cos)
+
     return AnalysisResult(
         status=AnalysisStatus.OK,
         threshold=threshold,
