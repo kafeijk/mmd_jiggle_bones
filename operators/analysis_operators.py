@@ -1096,7 +1096,7 @@ def preprocess(active_object, source_objs):
     return obj_visibility_map
 
 
-def get_verts_influenced_by_bones(obj, bone_names, threshold):
+def get_verts_influenced_by_bones(obj, bone_names, threshold, right=True):
     """
     获取受指定骨骼影响且总权重大于 threshold 的顶点
     """
@@ -1112,6 +1112,10 @@ def get_verts_influenced_by_bones(obj, bone_names, threshold):
     verts = []
     count = 0
     for v in obj.data.vertices:
+        # 仅根据 bone_names 判断左右侧可能存在误差（如权重绑定错误），因此需通过顶点实际位置进行二次校验。
+        if right and v.co.x < 0:
+            continue
+
         total_weight = 0.0
 
         for g in v.groups:
