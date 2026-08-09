@@ -116,36 +116,26 @@ def remove_doubles_between_rings(tmp_obj, idx_ring_map, upper_rings):
     bm.free()
 
 @timeit
-def process_muti_rings(tmp_obj, z_max, nipple_co, upper_rings, idx_ring_map, vertex_co_ring_map):
-    # if len(upper_rings) > 1:
-
-    # 以 start_vert 作为起始点，curr = start_vert
-
-    # while curr 有相邻顶点且任一相邻顶点不在 visited 中
-    # 获取其相邻且在z_max_verts上且不在visited的顶点，任取其一作为下一次访问的顶点
-    # 更新 curr，将 start_vert 放入 visited， prev = start_vert
-    # 如果curr的co在vertex_co_ring_map中，则将curr放入visited，prev = curr
-    # 如果curr的co不在vertex_co_ring_map中，则删除改点，获取prev顶点，获取prev顶点的环id，获取在z_max_verts且和prev顶点距离最近且在vertex_co_ring_map中的顶点且与prev顶点不在一个环上的顶点，连接该点与prev顶点，然后将curr设置为start_vert重新开始
-    # 知道 curr的相邻顶点均在visited中，结束while，并将最后一个curr放入visited
-
+def process_muti_rings(tmp_obj, loc_z, ref_co, rings, idx_ring_map):
     # 合并不同环上距离过近的顶点，使不同环相连，供后续处理
-    remove_doubles_between_rings(tmp_obj,idx_ring_map, upper_rings)
+    remove_doubles_between_rings(tmp_obj, idx_ring_map, rings)
 
     bm = bmesh.new()
     bm.from_mesh(tmp_obj.data)
     bm.verts.ensure_lookup_table()
 
-    # 获取 z=z_max 平面上的顶点
-    z_max_verts = [v for v in bm.verts if abs(v.co.z - z_max) <= 1e-6]
+    # 获取 z=loc_z 平面上的顶点
+    loc_z_verts = [v for v in bm.verts if abs(v.co.z - loc_z) <= 1e-6]
+    # 获取start参考点
     start_verts = []
-    # 1. 距离 nipple_co 最近的顶点
-    start_verts.append(min(z_max_verts, key=lambda v: (v.co - nipple_co).length))
-    # 2. 距离 nipple_co（X 取相反值）最近的顶点
-    mirror_nipple_co = nipple_co.copy()
-    mirror_nipple_co.x *= -1
-    start_verts.append(min(z_max_verts, key=lambda v: (v.co - mirror_nipple_co).length))
+    # 1. 距离 nipple_co / under_co 最近的顶点
+    start_verts.append(min(loc_z_verts, key=lambda v: (v.co - ref_co).length))
+    # 2. 距离 nipple_co / under_co（X 取相反值）最近的顶点
+    mirror_ref_co = ref_co.copy()
+    mirror_ref_co.x *= -1
+    start_verts.append(min(loc_z_verts, key=lambda v: (v.co - mirror_ref_co).length))
     # 3. Y 最大的顶点
-    start_verts.append(max(z_max_verts, key=lambda v: v.co.y))
+    start_verts.append(max(loc_z_verts, key=lambda v: v.co.y))
 
     # 交叉点 -> 可能的prev集合
     x_prevs_map = defaultdict(list)
@@ -165,7 +155,7 @@ def process_muti_rings(tmp_obj, z_max, nipple_co, upper_rings, idx_ring_map, ver
             others = set()
             for edge in curr.link_edges:
                 other = edge.other_vert(curr)
-                if abs(other.co.z - z_max) > 1e-6:
+                if abs(other.co.z - loc_z) > 1e-6:
                     continue
                 others.add(other)
 
@@ -187,7 +177,7 @@ def process_muti_rings(tmp_obj, z_max, nipple_co, upper_rings, idx_ring_map, ver
             for edge in curr.link_edges:
                 other = edge.other_vert(curr)
                 # 排除不在z=z_max上的顶点
-                if abs(other.co.z - z_max) > 1e-6:
+                if abs(other.co.z - loc_z) > 1e-6:
                     continue
                 # 排除已访问过的顶点
                 if get_co_key(other.co) in curr_visited:
@@ -283,7 +273,7 @@ def further_process_for_base_body(source_objs, results):
         upper_rings, idx_ring_map, vertex_co_ring_map = get_rings(tmp_obj, nipple_z)
         if len(upper_rings) > 1:
             status, upper_ring_verts = process_muti_rings(tmp_obj, nipple_z, result.nipple_co, upper_rings,
-                                                          idx_ring_map, vertex_co_ring_map)
+                                                          idx_ring_map)
             # 胸部结构复杂直接返回
             if status == AnalysisStatus.BREAST_MESH_COMPLEX:
                 result.status = AnalysisStatus.BREAST_MESH_COMPLEX
@@ -298,8 +288,8 @@ def further_process_for_base_body(source_objs, results):
         # 因此采用与upper_rings相同的处理策略，以保持逻辑一致。
         under_rings, idx_ring_map, vertex_co_ring_map = get_rings(tmp_obj, under_z)
         if len(under_rings) > 1:
-            status, under_ring_verts = process_muti_rings(tmp_obj, under_z, result.nipple_co, under_rings,
-                                                          idx_ring_map, vertex_co_ring_map)
+            status, under_ring_verts = process_muti_rings(tmp_obj, under_z, result.under_co, under_rings,
+                                                          idx_ring_map)
             # 胸部结构复杂直接返回
             if status == AnalysisStatus.BREAST_MESH_COMPLEX:
                 result.status = AnalysisStatus.BREAST_MESH_COMPLEX
