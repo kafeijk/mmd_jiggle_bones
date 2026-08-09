@@ -17,6 +17,7 @@ class AnalysisStatus(Enum):
     NO_BREAST_VERTS_AFTER_DELETE_INVALID = auto()
     NO_BREAST_INNER = auto()
     BREAST_MESH_COMPLEX = auto()
+    BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP = auto()
     BREAST_MESH_COMPLEX_NO_UPPER_BUST = auto()
     BREAST_MESH_COMPLEX_NO_LOWER_BUST = auto()
     ERROR = auto()
@@ -250,6 +251,12 @@ def further_process_for_base_body(source_objs, results):
         # 胸部较大而自然下垂时，乳首位置可能会小于乳根位置，因此不会continue，而是取实际的最大最小值，用于后续切割（例如Hanako_BaseBody）
         z_max = max(result.nipple_co.z, result.under_co.z)
         z_min = min(result.nipple_co.z, result.under_co.z)
+
+        # 判断乳首与乳根是否重合（例如：莱娅_热力运动），此类情况通常出现在平胸角色
+        if (result.nipple_co - result.under_co).length < 1e-6:
+            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP
+            result.msg = "胸部网格结构复杂，乳首与乳根位置相同！"
+            continue
 
         # 创建临时对象
         tmp_obj_name = f"{index}_{BASEBODY_TMP_OBJ_NAME}_{result.threshold}_None"
