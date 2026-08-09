@@ -1336,10 +1336,19 @@ def get_breast_nipple(bm, temp_obj, breast_verts, under_vert, other_island_verts
 
             # 比较两个候选顶点 link_edges 的平均长度，取边长较小的那个
             candidates = [min_y_vert, proj_vert]
-            return min(
-                candidates,
-                key=lambda v: sum(e.calc_length() for e in v.link_edges) / len(v.link_edges)
-            )
+
+            # 模型导入时，默认已清理无效顶点。
+            # 但后续处理过程中，顶点删除可能会产生无边连接的孤立顶点。
+            # 如果两个候选顶点均为孤立顶点，也无需处理，后续 check_vert 校验不会通过。（例如：卡拉彼丘 忧雾_三途雾徊_进阶无裙黄）
+            if len(min_y_vert.link_edges) == 0:
+                return proj_vert
+            elif len(proj_vert.link_edges) == 0:
+                return min_y_vert
+            else:
+                return min(
+                    candidates,
+                    key=lambda v: sum(e.calc_length() for e in v.link_edges) / len(v.link_edges)
+                )
 
     def check_vert(v):
         # 顶点不能位于temp_obj的边界边上，但前侧顶点和下侧顶点位于同一个uv则可忽略这项校验（防止短款夹克的干扰，恩雅_澜风_恋恋秋行）
