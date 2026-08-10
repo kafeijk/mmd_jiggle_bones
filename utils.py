@@ -105,7 +105,7 @@ CUP_LIST = [
     (50, "X"),
     (52, "Y"),
     (54, "Z"),
-    (1000000, "???"),
+    (float("inf"), None),
 ]
 # cup值到索引的映射
 CUP_INDEX_MAP = {v: i for i, (k, v) in enumerate(CUP_LIST)}
@@ -143,7 +143,7 @@ STANDARD_CUP_LIST = [
     (70, "X"),
     (72.5, "Y"),
     (75, "Z"),
-    (1000000, "???"),
+    (float("inf"), None),
 ]
 # cup值到索引的映射
 STANDARD_CUP_INDEX_MAP= {v: i for i, (k, v) in enumerate(STANDARD_CUP_LIST)}
