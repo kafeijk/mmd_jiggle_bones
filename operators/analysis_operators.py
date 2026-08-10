@@ -21,6 +21,7 @@ class AnalysisStatus(Enum):
     BREAST_MESH_COMPLEX_NO_UPPER_BUST = (8, "胸部网格结构复杂！无法准确获取上胸围，请删除无关内容后重试。")
     BREAST_MESH_COMPLEX_NO_LOWER_BUST = (9, "胸部网格结构复杂！无法准确获取下胸围，请删除无关内容后重试。")
     BUST_DIFF_TOO_LARGE = (10, "胸部网格结构复杂！胸围差计算异常，请删除无关内容后重试。")
+    BUST_DIFF_NEGATIVE = (11, "胸部网格结构复杂！胸围差为负值，请删除无关内容后重试。")
     ERROR = (99, "未知错误！")
 
     def __init__(self, code, msg):
@@ -378,6 +379,11 @@ def further_process_for_base_body(source_objs, results):
         # 围差
         bust_diff = upper_bust - under_bust if upper_bust and under_bust else None
         bust_diff_cm = bust_diff * 100 if bust_diff else None
+
+        if bust_diff_cm < 0:
+            result.status = AnalysisStatus.BUST_DIFF_NEGATIVE
+            result.msg = f"{AnalysisStatus.BUST_DIFF_NEGATIVE.msg}上胸围：{round(upper_bust * 100, 2)} cm 下胸围：{round(under_bust * 100, 2)} cm 胸围差：{round(bust_diff * 100, 2)} cm"
+            continue
 
         # 计算罩杯
         cup = None
