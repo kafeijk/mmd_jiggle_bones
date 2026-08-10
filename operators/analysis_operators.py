@@ -20,6 +20,7 @@ class AnalysisStatus(Enum):
     BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP = auto()
     BREAST_MESH_COMPLEX_NO_UPPER_BUST = auto()
     BREAST_MESH_COMPLEX_NO_LOWER_BUST = auto()
+    BUST_DIFF_TOO_LARGE = auto()
     ERROR = auto()
 
 
@@ -395,6 +396,11 @@ def further_process_for_base_body(source_objs, results):
         result.bust_diff = bust_diff
         result.cup_index = get_standard_cup_index(cup)
         result.tmp_obj_for_base_body = tmp_obj
+
+        if cup == STANDARD_CUP_LIST[-1][1]:
+            result.status = AnalysisStatus.BUST_DIFF_TOO_LARGE
+            result.msg = "胸部网格结构复杂！胸围差计算异常"
+            continue
 
     return results
 
@@ -1486,6 +1492,10 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
 
     lower_nipple_diff_y = (lower_co.y - nipple_co.y) * 2 * 100
     cup, cup_index = next((c, i) for i, (limit, c) in enumerate(CUP_LIST) if lower_nipple_diff_y < limit)
+
+    if cup == CUP_LIST[-1][1]:
+        return AnalysisResult(status=AnalysisStatus.BUST_DIFF_TOO_LARGE, msg="胸部网格结构复杂！胸围差计算异常", threshold=threshold)
+
     cup_inner = None
     cup_inner_index = None
     if inner_vert:
