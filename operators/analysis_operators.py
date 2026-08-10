@@ -1,6 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
-from enum import Enum, auto
+from enum import Enum
 
 import bmesh
 import bpy_extras.mesh_utils
@@ -10,18 +10,22 @@ from ..utils import *
 
 
 class AnalysisStatus(Enum):
-    OK = auto()
-    NO_BREAST_VERTS = auto()
-    NO_ISLANDS = auto()
-    NO_BOUNDARY = auto()
-    NO_BREAST_VERTS_AFTER_DELETE_INVALID = auto()
-    NO_BREAST_INNER = auto()
-    BREAST_MESH_COMPLEX = auto()
-    BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP = auto()
-    BREAST_MESH_COMPLEX_NO_UPPER_BUST = auto()
-    BREAST_MESH_COMPLEX_NO_LOWER_BUST = auto()
-    BUST_DIFF_TOO_LARGE = auto()
-    ERROR = auto()
+    OK = (0, "")
+    NO_BREAST_VERTS = (1, "无法获取有效胸部网格范围！请检查顶点组中是否存在顶点。")
+    NO_ISLANDS = (2, "未找到胸部网格松散块！")
+    NO_BOUNDARY = (3, "未找到胸部网格松散块的边界顶点！")
+    NO_BREAST_VERTS_AFTER_DELETE_INVALID = (4, "胸部网格结构复杂！移除无效顶点后，无剩余胸部网格。")
+    NO_BREAST_INNER = (5, "无法获取胸部内侧点！")
+    BREAST_MESH_COMPLEX = (6, "胸部网格结构复杂！请删除无关内容后重试。")
+    BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP = (7, "胸部网格结构复杂！乳首与乳根位置相同。")
+    BREAST_MESH_COMPLEX_NO_UPPER_BUST = (8, "胸部网格结构复杂！无法准确获取上胸围，请删除无关内容后重试。")
+    BREAST_MESH_COMPLEX_NO_LOWER_BUST = (9, "胸部网格结构复杂！无法准确获取下胸围，请删除无关内容后重试。")
+    BUST_DIFF_TOO_LARGE = (10, "胸部网格结构复杂！胸围差计算异常，请删除无关内容后重试。")
+    ERROR = (99, "未知错误！")
+
+    def __init__(self, code, msg):
+        self.code = code
+        self.msg = msg
 
 
 @dataclass
@@ -246,7 +250,7 @@ def further_process_for_base_body(source_objs, results):
         # 判断乳首与乳根是否重合（例如：莱娅_热力运动），此类情况通常出现在平胸角色
         if (result.nipple_co - result.under_co).length < 1e-6:
             result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP
-            result.msg = "胸部网格结构复杂，乳首与乳根位置相同！"
+            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP.msg
             continue
 
         # 创建临时对象
@@ -278,7 +282,7 @@ def further_process_for_base_body(source_objs, results):
             # 胸部结构复杂直接返回
             if status == AnalysisStatus.BREAST_MESH_COMPLEX:
                 result.status = AnalysisStatus.BREAST_MESH_COMPLEX
-                result.msg = "胸部网格结构复杂，请删除无关内容后重试！"
+                result.msg = status.msg
                 continue
         else:
             upper_ring_verts = idx_ring_map.keys()
@@ -294,7 +298,7 @@ def further_process_for_base_body(source_objs, results):
             # 胸部结构复杂直接返回
             if status == AnalysisStatus.BREAST_MESH_COMPLEX:
                 result.status = AnalysisStatus.BREAST_MESH_COMPLEX
-                result.msg = "胸部网格结构复杂，请删除无关内容后重试！"
+                result.msg = status.msg
                 continue
         else:
             under_ring_verts = idx_ring_map.keys()
@@ -353,11 +357,11 @@ def further_process_for_base_body(source_objs, results):
         # 如果任一上下胸围顶点数为0，则continue
         if len(upper_ring_verts) == 0:
             result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST
-            result.msg =  "胸部网格结构复杂，无法准确获取上胸围，请删除无关内容后重试！"
+            result.msg =  AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST.msg
             continue
         if len(under_ring_verts) == 0:
             result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_LOWER_BUST
-            result.msg = "胸部网格结构复杂，无法准确获取下胸围，请删除无关内容后重试！"
+            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_LOWER_BUST.msg
             continue
 
         # 计算上胸围
@@ -399,7 +403,7 @@ def further_process_for_base_body(source_objs, results):
 
         if cup == STANDARD_CUP_LIST[-1][1]:
             result.status = AnalysisStatus.BUST_DIFF_TOO_LARGE
-            result.msg = "胸部网格结构复杂！胸围差计算异常"
+            result.msg = AnalysisStatus.BUST_DIFF_TOO_LARGE.msg
             continue
 
     return results
@@ -1448,7 +1452,7 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
     if not obj_verts_map:
         return AnalysisResult(
             status=AnalysisStatus.NO_BREAST_VERTS,
-            msg=f"无法获取有效胸部网格范围！请检查顶点组中是否存在顶点。顶点组名称参考：{vg_names_l}",
+            msg=f"{AnalysisStatus.NO_BREAST_VERTS.msg}顶点组名称参考：{vg_names_l}",
             threshold=threshold
         )
 
@@ -1465,7 +1469,7 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
     if status in (AnalysisStatus.NO_ISLANDS, AnalysisStatus.NO_BOUNDARY):
         bpy.data.objects.remove(tmp_obj, do_unlink=True)
         bpy.data.collections.remove(tmp_col)
-        msg = "未找到胸部网格松散块！" if status == AnalysisStatus.NO_ISLANDS else "未找到胸部网格松散块的边界顶点！"
+        msg = status.msg
         return AnalysisResult(status=status, msg=msg, threshold=threshold)
 
     # 获取胸部宽度
@@ -1479,7 +1483,7 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
     status, nipple, breast_verts = get_breast_nipple(bm, tmp_obj, breast_verts, lower, other_island_verts,
                                                      analysis_type)
     if status == AnalysisStatus.NO_BREAST_VERTS_AFTER_DELETE_INVALID:
-        return AnalysisResult(status=status, msg="胸部网格结构复杂！移除无效顶点后，无剩余胸部网格", threshold=threshold)
+        return AnalysisResult(status=status, msg=status.msg, threshold=threshold)
     nipple_co = nipple.co
 
     # 获取胸部内侧顶点，没有也无所谓
