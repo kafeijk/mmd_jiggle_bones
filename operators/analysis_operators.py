@@ -1582,7 +1582,7 @@ def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None, t
     tmp_obj.name = tmp_obj_name
     temp_mesh = tmp_obj.data
 
-    # tmp_obj 与父级取消关联
+    # 父级取消关联
     tmp_obj.parent = None
 
     # 排除形态键干扰
