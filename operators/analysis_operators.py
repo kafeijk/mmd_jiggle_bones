@@ -796,6 +796,7 @@ class AnalysisOperator(bpy.types.Operator):
         results = batch_do_analysis(obj_vgs_map, analysis_type)
         if all(r.status != AnalysisStatus.OK for r in results):
             clean_collection([TMP_COLLECTION_NAME,TMP_ANALYSIS_COLLECTION_NAME])
+            postprocess(active_object, obj_visibility_map)
             msg = build_all_failed_msg(results)
             self.report({'ERROR'}, msg)
             return
@@ -806,6 +807,7 @@ class AnalysisOperator(bpy.types.Operator):
             results = further_process_for_base_body(source_objs, results)
             if all(r.status != AnalysisStatus.OK for r in results):
                 clean_collection([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
+                postprocess(active_object, obj_visibility_map)
                 msg = build_all_failed_msg(results)
                 self.report({'ERROR'}, msg)
                 return
