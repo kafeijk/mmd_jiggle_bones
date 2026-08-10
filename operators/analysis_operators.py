@@ -1469,10 +1469,7 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
     # 获取参考顶点所在松散块
     status, boundary, breast_verts, other_island_verts = get_best_island(bm)
     if status in (AnalysisStatus.NO_ISLANDS, AnalysisStatus.NO_BOUNDARY):
-        bpy.data.objects.remove(tmp_obj, do_unlink=True)
-        bpy.data.collections.remove(tmp_col)
-        msg = status.msg
-        return AnalysisResult(status=status, msg=msg, threshold=threshold)
+        return AnalysisResult(status=status, msg=status.msg, threshold=threshold, tmp_obj=tmp_obj)
 
     # 获取胸部宽度
     max_x = max(v.co.x for v in breast_verts if v.co.x >= 0)
@@ -1485,7 +1482,7 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
     status, nipple, breast_verts = get_breast_nipple(bm, tmp_obj, breast_verts, lower, other_island_verts,
                                                      analysis_type)
     if status == AnalysisStatus.NO_BREAST_VERTS_AFTER_DELETE_INVALID:
-        return AnalysisResult(status=status, msg=status.msg, threshold=threshold)
+        return AnalysisResult(status=status, msg=status.msg, threshold=threshold, tmp_obj=tmp_obj)
     nipple_co = nipple.co
 
     # 获取胸部内侧顶点，没有也无所谓
@@ -1502,7 +1499,7 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
     if cup == CUP_LIST[-1][1]:
         return AnalysisResult(status=AnalysisStatus.BUST_DIFF_TOO_LARGE,
                               msg=AnalysisStatus.BUST_DIFF_TOO_LARGE.msg,
-                              threshold=threshold)
+                              threshold=threshold, tmp_obj=tmp_obj)
 
     cup_inner = None
     cup_inner_index = None
