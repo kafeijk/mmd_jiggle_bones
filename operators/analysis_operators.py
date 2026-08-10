@@ -403,7 +403,7 @@ def further_process_for_base_body(source_objs, results):
 
         if cup == STANDARD_CUP_LIST[-1][1]:
             result.status = AnalysisStatus.BUST_DIFF_TOO_LARGE
-            result.msg = AnalysisStatus.BUST_DIFF_TOO_LARGE.msg
+            result.msg = f"{AnalysisStatus.BUST_DIFF_TOO_LARGE.msg}上胸围：{round(upper_bust * 100, 2)} cm 下胸围：{round(under_bust * 100, 2)} cm"
             continue
 
     return results
@@ -1498,7 +1498,9 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
     cup, cup_index = next((c, i) for i, (limit, c) in enumerate(CUP_LIST) if lower_nipple_diff_y < limit)
 
     if cup == CUP_LIST[-1][1]:
-        return AnalysisResult(status=AnalysisStatus.BUST_DIFF_TOO_LARGE, msg="胸部网格结构复杂！胸围差计算异常", threshold=threshold)
+        return AnalysisResult(status=AnalysisStatus.BUST_DIFF_TOO_LARGE,
+                              msg=AnalysisStatus.BUST_DIFF_TOO_LARGE.msg,
+                              threshold=threshold)
 
     cup_inner = None
     cup_inner_index = None
