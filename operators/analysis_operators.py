@@ -355,12 +355,12 @@ def further_process_for_base_body(source_objs, results):
         tmp_obj.data.update()
         bm.free()
 
-        # 如果任一上下胸围顶点数为0，则continue
-        if len(upper_ring_verts) == 0:
+        # 如果任一上下胸围顶点数小于2，则无法构成边，直接continue
+        if len(upper_ring_verts) < 2:
             result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST
-            result.msg =  AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST.msg
+            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST.msg
             continue
-        if len(under_ring_verts) == 0:
+        if len(under_ring_verts) < 2:
             result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_LOWER_BUST
             result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_LOWER_BUST.msg
             continue
@@ -373,12 +373,23 @@ def further_process_for_base_body(source_objs, results):
         under_ring_verts = get_under_ring_verts(tmp_obj, under_z)
         under_bust = get_ring_edge_length(tmp_obj, under_ring_verts)
 
+        # 再次校验，增加健壮性（例如：心夏_鸭子摇滚）
+        if not upper_bust:
+            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST
+            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST.msg
+            continue
+
+        if not under_bust:
+            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_LOWER_BUST
+            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_LOWER_BUST.msg
+            continue
+
         # 取消顶点选中
         deselect_verts(tmp_obj)
 
         # 围差
-        bust_diff = upper_bust - under_bust if upper_bust and under_bust else None
-        bust_diff_cm = bust_diff * 100 if bust_diff else None
+        bust_diff = upper_bust - under_bust
+        bust_diff_cm = bust_diff * 100
 
         if bust_diff_cm < 0:
             result.status = AnalysisStatus.BUST_DIFF_NEGATIVE
