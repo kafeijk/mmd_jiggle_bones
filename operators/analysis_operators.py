@@ -406,9 +406,6 @@ def further_process_for_base_body(source_objs, results):
 
         # 解除临时对象与源对象的关联
         tmp_obj.name = f"{index}_{BASEBODY_TMP_OBJ_NAME}_{result.threshold}_{cup if cup else 'None'}"
-        world_matrix = tmp_obj.matrix_world.copy()
-        tmp_obj.parent = None
-        tmp_obj.matrix_world = world_matrix
 
         # 保存结果
         result.cup = cup
