@@ -275,7 +275,7 @@ def further_process_for_base_body(source_objs, results):
         # 此处因为是位置校验而非顶点校验，所以islands可能会多选，需要后续进一步处理
         keep_islands_between_z(tmp_obj, result.under_co, result.nipple_co)
 
-        # 获取upper_rings，如果upper_rings存在多个环，需通过合并的方式减少环，并进一步处理
+        # 获取upper_rings，如果upper_rings存在多个环，需通过合并的方式减少环，并进一步处理（Hanako_BaseBody）
         upper_rings, idx_ring_map, vertex_co_ring_map = get_rings(tmp_obj, nipple_z)
         if len(upper_rings) > 1:
             status, upper_ring_verts = process_muti_rings(tmp_obj, nipple_z, result.nipple_co, upper_rings,
@@ -303,6 +303,15 @@ def further_process_for_base_body(source_objs, results):
                 continue
         else:
             under_ring_verts = idx_ring_map.keys()
+        process_bust_line(tmp_obj, under_ring_verts)
+
+        # 获取唯一的上圈和下圈
+        # 之前的流程主要针对素体模型进行优化，对于非素体模型中的饰品等无关结构，可能无法完全准确排除。
+        # 在唯一确定检测环后再次处理，可以提高非素体模型的处理成功率，以及不同Blender版本下执行结果的一致性。（例如：卡拉比丘的星绘_沐春灼华_进阶后_紫）
+        # 如果仍然出现选择错误，则交由用户自行处理。
+        upper_ring_verts = get_upper_ring_verts(tmp_obj, nipple_z)
+        process_bust_line(tmp_obj, upper_ring_verts)
+        under_ring_verts = get_under_ring_verts(tmp_obj, under_z)
         process_bust_line(tmp_obj, under_ring_verts)
 
         # 再次获取上圈和下圈
