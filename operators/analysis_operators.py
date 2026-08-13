@@ -121,6 +121,19 @@ def remove_doubles_between_rings(tmp_obj, idx_ring_map, upper_rings):
     tmp_obj.data.update()
     bm.free()
 
+
+def get_sorted_link_edges(vert):
+    """获取排序后的关联边，避免 Blender 4.5 与 5.0 版本中边遍历顺序不一致导致结果差异"""
+    return sorted(
+        vert.link_edges,
+        key=lambda edge: (
+            edge.other_vert(vert).co.z,
+            edge.other_vert(vert).co.x,
+            edge.other_vert(vert).co.y,
+        )
+    )
+
+
 @timeit
 def process_muti_rings(tmp_obj, loc_z, ref_co, rings, idx_ring_map):
     # 合并不同环上距离过近的顶点，使不同环相连，供后续处理
@@ -159,7 +172,7 @@ def process_muti_rings(tmp_obj, loc_z, ref_co, rings, idx_ring_map):
 
             # 获取与当前顶点相临且在z=z_max平面上的顶点
             others = set()
-            for edge in curr.link_edges:
+            for edge in get_sorted_link_edges(curr):
                 other = edge.other_vert(curr)
                 if abs(other.co.z - loc_z) > 1e-6:
                     continue
@@ -180,7 +193,7 @@ def process_muti_rings(tmp_obj, loc_z, ref_co, rings, idx_ring_map):
 
             # 找下一个相邻点
             next_vert = None
-            for edge in curr.link_edges:
+            for edge in get_sorted_link_edges(curr):
                 other = edge.other_vert(curr)
                 # 排除不在z=z_max上的顶点
                 if abs(other.co.z - loc_z) > 1e-6:
@@ -683,7 +696,7 @@ def collect_island(start_vert, visited):
         visited.add(v)
         island.add(v)
 
-        for e in v.link_edges:
+        for e in get_sorted_link_edges(v):
             ov = e.other_vert(v)
             if ov not in visited:
                 stack.append(ov)
@@ -1372,7 +1385,7 @@ def get_breast_nipple(bm, temp_obj, breast_verts, under_vert, other_island_verts
             else:
                 return min(
                     candidates,
-                    key=lambda v: sum(e.calc_length() for e in v.link_edges) / len(v.link_edges)
+                    key=lambda v: sum(e.calc_length() for e in get_sorted_link_edges(v)) / len(v.link_edges)
                 )
 
     def check_vert(v):
@@ -1389,7 +1402,7 @@ def get_breast_nipple(bm, temp_obj, breast_verts, under_vert, other_island_verts
         if len(upper_vert.link_edges) < 3:
             return False
 
-        for edge in v.link_edges:
+        for edge in get_sorted_link_edges(v):
             faces = edge.link_faces
             if len(faces) == 2:
                 # 法线夹角
@@ -1754,7 +1767,7 @@ def build_connected_chain(verts):
         visited.add(curr)
 
         nxt = None
-        for e in curr.link_edges:
+        for e in get_sorted_link_edges(curr):
             v = e.other_vert(curr)
             # 条件：对端顶点属于链 且 不是来时的方向
             if v in vert_set and v != prev:
@@ -1822,7 +1835,7 @@ def build_edge_cache(chain):
     cache = {}
     seen_verts = set(chain)  # 链上所有顶点的集合
     for v in seen_verts:
-        for e in v.link_edges:
+        for e in get_sorted_link_edges(v):
             ov = e.other_vert(v)
             if ov in seen_verts:  # 只缓存"链内边"（两端都在链上）
                 cache[frozenset((v, ov))] = e
