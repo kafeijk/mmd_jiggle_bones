@@ -134,6 +134,17 @@ def get_sorted_link_edges(vert):
     )
 
 
+def sort_verts(verts):
+    return sorted(
+        verts,
+        key=lambda v: (
+            v.co.z,
+            v.co.x,
+            v.co.y,
+        ),
+    )
+
+
 @timeit
 def process_muti_rings(tmp_obj, loc_z, ref_co, rings, idx_ring_map):
     # 合并不同环上距离过近的顶点，使不同环相连，供后续处理
@@ -2195,6 +2206,7 @@ def process_bust_line(obj, ring_verts):
     bm.edges.ensure_lookup_table()
 
     verts = [bm.verts[i] for i in ring_verts if bm.verts[i].link_edges]  # 从传入的索引集合取顶点
+    verts = sort_verts(verts)
     for iteration in range(max_iter):
         if len(verts) < 3:
             break
