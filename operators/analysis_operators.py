@@ -287,7 +287,7 @@ def further_process_for_base_body(source_objs, results):
         # 合并顶点，避免因切割产生的相邻顶点对后续流程造成干扰
         bm = bmesh.new()
         bm.from_mesh(temp_mesh)
-        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-6)
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-7) # 1e-6 在 Blender 4.5 和 5.0 中的计算结果存在细微差异。
         bm.to_mesh(temp_mesh)
         bm.free()
 
