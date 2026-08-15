@@ -125,15 +125,25 @@ def remove_doubles_between_rings(tmp_obj, idx_ring_map, upper_rings):
 
 
 def get_sorted_link_edges(vert):
-    """获取排序后的关联边，避免 Blender 4.5 与 5.0 版本中边遍历顺序不一致导致结果差异"""
-    return sorted(
-        vert.link_edges,
-        key=lambda edge: (
-            edge.other_vert(vert).co.z,
-            edge.other_vert(vert).co.x,
-            edge.other_vert(vert).co.y,
+    """获取按边质心 z、x、y 排序后的关联边"""
+
+    edge_centers = [
+        (
+            edge,
+            (vert.co + edge.other_vert(vert).co) / 2
+        )
+        for edge in vert.link_edges
+    ]
+
+    edge_centers.sort(
+        key=lambda item: (
+            item[1].z,
+            item[1].x,
+            item[1].y,
         )
     )
+
+    return [edge for edge, _ in edge_centers]
 
 
 def sort_verts(verts):
@@ -463,6 +473,30 @@ def is_closed_ring(group, edge_count):
     return edge_count == len(group)  # 闭合环的边数恰好等于顶点数
 
 
+def get_sorted_edges(obj):
+    """按照边质心的 z、x、y 坐标排序"""
+
+    vertices = obj.data.vertices
+
+    edge_centers = [
+        (
+            edge,
+            (vertices[edge.vertices[0]].co + vertices[edge.vertices[1]].co) / 2
+        )
+        for edge in obj.data.edges
+    ]
+
+    edge_centers.sort(
+        key=lambda item: (
+            item[1].z,
+            item[1].x,
+            item[1].y,
+        )
+    )
+
+    return [edge for edge, _ in edge_centers]
+
+
 def get_rings_at_z(obj, z_target, tol=1e-6):
     """获取 z ≈ z_target 处所有顶点圈，返回 list of (group_set, total_length)"""
 
@@ -475,7 +509,7 @@ def get_rings_at_z(obj, z_target, tol=1e-6):
     group_length = []
     group_edge_count = []  # 与 groups 一一对应，存放该圈已收录的边数
 
-    for edge in obj.data.edges:
+    for edge in get_sorted_edges(obj):
         v0, v1 = edge.vertices[0], edge.vertices[1]
         if v0 not in candidates or v1 not in candidates:
             continue
