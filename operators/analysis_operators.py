@@ -22,6 +22,8 @@ class AnalysisStatus(Enum):
     BREAST_MESH_COMPLEX_NO_LOWER_BUST = (9, "胸部网格结构复杂！无法准确获取下胸围，请删除无关内容后重试。")
     BUST_DIFF_TOO_LARGE = (10, "胸部网格结构复杂！胸围差计算异常，请删除无关内容后重试。")
     BUST_DIFF_NEGATIVE = (11, "胸部网格结构复杂！胸围差为负值，请删除无关内容后重试。")
+    BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS = (12, "胸部网格结构复杂！存在重叠且法向相反的面，请删除无关内容后重试。")
+    BREAST_MESH_COMPLEX_MIX_NORMALS = (13, "胸部网格结构复杂！同一松散块中存在不同的面朝向，请删除无关内容后重试。")
     ERROR = (99, "未知错误！")
 
     def __init__(self, code, msg):
@@ -1485,6 +1487,86 @@ def get_breast_cleavage(max_x, breast_verts, other_island_verts):
 
     return None, best_cleavage_vert
 
+
+@timeit
+def has_mixed_face_normals(obj):
+    """检测是否存在面朝向不一致"""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+
+    for edge in bm.edges:
+        faces = edge.link_faces
+
+        if len(faces) != 2:
+            continue
+
+        f1, f2 = faces
+
+        verts1 = [v.index for v in f1.verts]
+        verts2 = [v.index for v in f2.verts]
+
+        v1, v2 = sort_verts(edge.verts)
+        i1 = v1.index
+        i2 = v2.index
+
+        def edge_direction(verts):
+            for i, v in enumerate(verts):
+                next_v = verts[(i + 1) % len(verts)]
+
+                if v == i1 and next_v == i2:
+                    return 1
+
+                if v == i2 and next_v == i1:
+                    return -1
+
+            return 0
+
+        d1 = edge_direction(verts1)
+        d2 = edge_direction(verts2)
+
+        if d1 != 0 and d2 != 0 and d1 == d2:
+            bm.free()
+            return True
+
+    bm.free()
+    return False
+
+
+@timeit
+def has_overlapping_faces_with_opposite_normals(obj_verts_map):
+    """检查网格物体是否存在重合且法向相反的面"""
+    source_faces = {}
+
+    for obj, verts in obj_verts_map.items():
+        vert_indices = {v.index for v in verts}
+
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+
+        for face in bm.faces:
+            # 仅处理所有顶点都在指定 verts 中的面
+            if not all(v.index in vert_indices for v in face.verts):
+                continue
+
+            sorted_verts = sort_verts(face.verts)
+            face_key = tuple(get_co_key(v.co) for v in sorted_verts)
+
+            # 当前面的法向
+            normal_key = get_co_key(face.normal)
+
+            if face_key in source_faces:
+                old_normal_key = source_faces[face_key]
+
+                # 法向相反
+                if old_normal_key == tuple(-v for v in normal_key):
+                    return True
+            else:
+                source_faces[face_key] = normal_key
+        bm.free()
+    return False
+
+
 @timeit
 def do_analysis(obj_vgs_map, threshold, analysis_type):
     """分析胸部尺寸"""
@@ -1505,8 +1587,25 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
             threshold=threshold
         )
 
+    # 检查网格物体是否存在重合且法向相反的面（例如：星穹铁道的真珠）
+    if has_overlapping_faces_with_opposite_normals(obj_verts_map):
+        return AnalysisResult(
+            status=AnalysisStatus.BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS,
+            msg=AnalysisStatus.BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS.msg,
+            threshold=threshold
+        )
+
     # 创建临时胸部对象
     tmp_col, tmp_obj, temp_mesh = create_tmp_obj(obj_verts_map, tmp_obj_name=DEFAULT_TMP_OBJ_NAME)
+
+    # 检测同一松散块中是否存在不同的面朝向
+    if has_mixed_face_normals(tmp_obj):
+        return AnalysisResult(
+            status=AnalysisStatus.BREAST_MESH_COMPLEX_MIX_NORMALS,
+            msg=AnalysisStatus.BREAST_MESH_COMPLEX_MIX_NORMALS.msg,
+            threshold=threshold
+        )
+
     bm = bmesh.new()
     bm.from_mesh(temp_mesh)
     bm.faces.ensure_lookup_table()
