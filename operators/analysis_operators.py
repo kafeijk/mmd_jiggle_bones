@@ -168,6 +168,7 @@ def process_muti_rings(tmp_obj, loc_z, ref_co, rings, idx_ring_map):
 
     # 获取 z=loc_z 平面上的顶点
     loc_z_verts = [v for v in bm.verts if abs(v.co.z - loc_z) <= 1e-6]
+    loc_z_verts = sort_verts(loc_z_verts)
     # 获取start参考点
     start_verts = []
     # 1. 距离 nipple_co / under_co 最近的顶点
