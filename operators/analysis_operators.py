@@ -771,6 +771,13 @@ def get_mesh_island_verts(start_vert):
     return collect_island(start_vert, visited=set())
 
 
+def island_center(island):
+    center = Vector()
+    for v in island:
+        center += v.co
+    return center / len(island)
+
+
 def get_other_islands(bm, exclude_verts):
     """
     找出 bm 中除 exclude_verts 所在范围外的所有连通孤岛。
@@ -789,6 +796,25 @@ def get_other_islands(bm, exclude_verts):
         if v in visited:
             continue
         islands.append(collect_island(v, visited))
+
+    # 排序，避免遍历孤岛的顺序对结果造成影响：
+    # 1. 顶点数量降序
+    # 2. 顶点数一致时，按质心 z, x, y 升序
+    island_data = [
+        (island, island_center(island))
+        for island in islands
+    ]
+
+    island_data.sort(
+        key=lambda item: (
+            -len(item[0]),
+            item[1].z,
+            item[1].x,
+            item[1].y
+        )
+    )
+
+    islands = [item[0] for item in island_data]
 
     return islands
 
