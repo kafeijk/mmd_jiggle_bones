@@ -109,15 +109,20 @@ def remove_doubles_between_rings(tmp_obj, idx_ring_map, upper_rings):
 
             # 距离判断
             if (v1.co - v2.co).length <= 1e-3:
+                center = (v1.co + v2.co) * 0.5
+                v1.co = center
+                v2.co = center
                 verts_to_merge.add(v1)
                 verts_to_merge.add(v2)
+
+    bm.to_mesh(tmp_obj.data)
 
     # 按距离合并
     if verts_to_merge:
         bmesh.ops.remove_doubles(
             bm,
             verts=list(verts_to_merge),
-            dist=1e-3,
+            dist=1e-6,
         )
 
     bm.to_mesh(tmp_obj.data)
