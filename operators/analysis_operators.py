@@ -23,7 +23,6 @@ class AnalysisStatus(Enum):
     BUST_DIFF_TOO_LARGE = (10, "胸部网格结构复杂！胸围差计算异常，请删除无关内容后重试。")
     BUST_DIFF_NEGATIVE = (11, "胸部网格结构复杂！胸围差为负值，请删除无关内容后重试。")
     BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS = (12, "胸部网格结构复杂！存在重叠且法向相反的面，请删除无关内容后重试。")
-    BREAST_MESH_COMPLEX_MIX_NORMALS = (13, "胸部网格结构复杂！同一松散块中存在不同的面朝向，请删除无关内容后重试。")
     ERROR = (99, "未知错误！")
 
     def __init__(self, code, msg):
@@ -1524,50 +1523,6 @@ def get_breast_cleavage(max_x, breast_verts, other_island_verts):
 
 
 @timeit
-def has_mixed_face_normals(obj):
-    """检测是否存在面朝向不一致"""
-    bm = bmesh.new()
-    bm.from_mesh(obj.data)
-
-    for edge in bm.edges:
-        faces = edge.link_faces
-
-        if len(faces) != 2:
-            continue
-
-        f1, f2 = faces
-
-        verts1 = [v.index for v in f1.verts]
-        verts2 = [v.index for v in f2.verts]
-
-        v1, v2 = sort_verts(edge.verts)
-        i1 = v1.index
-        i2 = v2.index
-
-        def edge_direction(verts):
-            for i, v in enumerate(verts):
-                next_v = verts[(i + 1) % len(verts)]
-
-                if v == i1 and next_v == i2:
-                    return 1
-
-                if v == i2 and next_v == i1:
-                    return -1
-
-            return 0
-
-        d1 = edge_direction(verts1)
-        d2 = edge_direction(verts2)
-
-        if d1 != 0 and d2 != 0 and d1 == d2:
-            bm.free()
-            return True
-
-    bm.free()
-    return False
-
-
-@timeit
 def has_overlapping_faces_with_opposite_normals(obj_verts_map):
     """检查网格物体是否存在重合且法向相反的面"""
     source_faces = {}
@@ -1632,14 +1587,6 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
 
     # 创建临时胸部对象
     tmp_col, tmp_obj, temp_mesh = create_tmp_obj(obj_verts_map, tmp_obj_name=DEFAULT_TMP_OBJ_NAME)
-
-    # 检测同一松散块中是否存在不同的面朝向
-    if has_mixed_face_normals(tmp_obj):
-        return AnalysisResult(
-            status=AnalysisStatus.BREAST_MESH_COMPLEX_MIX_NORMALS,
-            msg=AnalysisStatus.BREAST_MESH_COMPLEX_MIX_NORMALS.msg,
-            threshold=threshold
-        )
 
     bm = bmesh.new()
     bm.from_mesh(temp_mesh)
