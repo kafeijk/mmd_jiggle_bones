@@ -90,6 +90,7 @@ def remove_doubles_between_rings(tmp_obj, idx_ring_map, upper_rings):
         for ring in upper_rings
         for idx in ring
     ]
+    tmp_verts = sort_verts(tmp_verts)
 
     verts_to_merge = set()
 
