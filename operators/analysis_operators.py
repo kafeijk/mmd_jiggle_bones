@@ -52,6 +52,8 @@ class AnalysisResult:
     tmp_obj: object | None = None
     tmp_obj_for_base_body: object | None = None
 
+    opposite_normals: bool = False
+
 
 @dataclass
 class BatchAnalysisResult:
@@ -273,6 +275,12 @@ def further_process_for_base_body(source_objs, results):
 
     for index, result in enumerate(results):
         if result.status != AnalysisStatus.OK:
+            continue
+
+        if result.opposite_normals:
+            status = AnalysisStatus.BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS
+            result.status = status
+            result.msg = status.msg
             continue
 
         # 重置cup参数
@@ -1578,12 +1586,13 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
         )
 
     # 检查网格物体是否存在重合且法向相反的面（例如：星穹铁道的真珠）
+    # 无论放在通用阶段还是素体阶段，都会影响部分正常模型的检测结果。
+    # 如果直接放在通用阶段，会引入不必要的检测；如果直接放在素体阶段，则会降低整体检测通过率。
+    # 因此，这里仅在通用阶段记录 tag，在素体阶段进行拦截。
+    # 这样可以检测出胸部区域存在的反向面问题，至于胸侧和后背区域，由于出现此类问题的概率较低，暂不进行处理。
+    opposite_normals = False
     if has_overlapping_faces_with_opposite_normals(obj_verts_map):
-        return AnalysisResult(
-            status=AnalysisStatus.BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS,
-            msg=AnalysisStatus.BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS.msg,
-            threshold=threshold
-        )
+        opposite_normals = True
 
     # 创建临时胸部对象
     tmp_col, tmp_obj, temp_mesh = create_tmp_obj(obj_verts_map, tmp_obj_name=DEFAULT_TMP_OBJ_NAME)
@@ -1654,6 +1663,7 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
         cup_inner=cup_inner,
         cup_inner_index=cup_inner_index,
         tmp_obj=tmp_obj,
+        opposite_normals = opposite_normals
     )
 
 
