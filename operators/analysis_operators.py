@@ -313,7 +313,9 @@ def further_process_for_base_body(source_objs, results):
         # 合并顶点，避免因切割产生的相邻顶点对后续流程造成干扰
         bm = bmesh.new()
         bm.from_mesh(temp_mesh)
-        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5) # Blender 4.5的bisect_plane函数在1e-6尺度上存在误差，例如少女前线2的秋桦_仁心仁术
+        # Blender 4.5的bisect_plane函数在1e-6尺度上存在误差，例如少女前线2的秋桦_仁心仁术 remove_doubles方法在1e-5上存在误差，例如Alya_BaseBody
+        # 优先素体的正确率
+        bmesh.ops.remove_doubles(bm, verts=sort_verts(bm.verts), dist=1e-6)
         bm.to_mesh(temp_mesh)
         bm.free()
 
