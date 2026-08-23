@@ -15,7 +15,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
             ("CUSTOM", "自定义", "手动填写完整胸部参数，以此来设置抖动效果，适用于单个模型的调整")
         ],
         default="DEFAULT",
-        update=lambda self, context: self.set_default_limits(context, "jiggle_adjustment_mode"),
+        update=lambda self, context: self.set_default_params(context, "jiggle_adjustment_mode"),
     )
 
     limit_lin_x_lower: bpy.props.FloatProperty(
@@ -271,8 +271,14 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         self._sync_pair(self.limit_ang_y_sync, "limit_ang_y_lower", "limit_ang_y_upper", changed_property)
         self._sync_pair(self.limit_ang_z_sync, "limit_ang_z_lower", "limit_ang_z_upper", changed_property)
 
-    def set_default_limits(self, context, changed_property):
+    def set_default_params(self, context, changed_property):
         struct = context.scene.mmd_jiggle_tools_set_rgba
+        batch = struct.batch
+
+        if self.jiggle_adjustment_mode == "DEFAULT":
+            pass
+        else:
+            batch.suffix_type = "RGBA"
 
         if self.jiggle_adjustment_mode == "CUSTOM_SIMPLIFY":
             target_props = {"breast_x", "breast_y", "breast_z"}

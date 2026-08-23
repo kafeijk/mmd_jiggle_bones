@@ -84,7 +84,13 @@ class RGBAPanel(bpy.types.Panel):
         batch_ui.prop(batch, "directory")
         batch_ui.prop(batch, "search_strategy")
         batch_ui.prop(batch, "threshold")
-        batch_ui.prop(batch, "suffix")
+
+        batch_ui2 = batch_ui.column()
+        batch_ui2.prop(batch, "suffix_type")
+        if props.jiggle_adjustment_mode == "DEFAULT":
+            batch_ui2.enabled = True
+        else:
+            batch_ui2.enabled = False
         batch_ui.prop(batch, "conflict_strategy")
 
         row = col.row(align=True)
