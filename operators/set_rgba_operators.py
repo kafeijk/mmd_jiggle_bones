@@ -234,15 +234,10 @@ class SetRgbaOperator(bpy.types.Operator):
             # 物理显示枠来源于RGBA素材
             frames.move(frames.find(PHYSICAL_FRAME_NAME), len(root.mmd_root.display_item_frames) - 1)
 
-        # 汝窑百分比
-        # RGBA刚体依然保留了普通胸部刚体的结构，包括胸部骨骼、胸部刚体和胸部Joint，其余刚体与Joint仅作为辅助使用。
-        # 也就是说，真正影响胸部骨骼运动的刚体是绑定到该骨骼的物理刚体，因此只需修改对应Joint的限定值即可实现抖动幅度的变化。
-        # 另外，改变胸部权重会影响原本模型，导致其被修改后不适合继续作为其它流程的基模，而修改Joint限定值可以解决该问题
-        err, analysis_result = analyze_breast(root)
-        if err:
+        set_flag, err_msg = set_joint_limits(root, joint_parent, props)
+        if not set_flag:
             clean_tmp_collection()
-            return name, "ERROR", err
-        set_joint_limits(analysis_result, joint_parent, props)
+            return name, "ERROR", err_msg
 
         # 导出模型
         deselect_all_objects()
@@ -285,10 +280,18 @@ def analyze_breast(root):
 
     return None, analysis_result
 
-def set_joint_limits(result, joint_parent, props):
+
+def set_joint_limits(root, joint_parent, props):
     mode = props.jiggle_adjustment_mode
 
     if mode == "DEFAULT":
+        # RGBA刚体依然保留了普通胸部刚体的结构，包括胸部骨骼、胸部刚体和胸部Joint，其余刚体与Joint仅作为辅助使用。
+        # 也就是说，真正影响胸部骨骼运动的刚体是绑定到该骨骼的物理刚体，因此只需修改对应Joint的限定值即可实现抖动幅度的变化。
+        # 另外，改变胸部权重会影响原本模型，导致其被修改后不适合继续作为其它流程的基模，而修改Joint限定值可以解决该问题
+        err_msg, result = analyze_breast(root)
+        if err_msg:
+            return False, err_msg
+
         # 单侧胸宽
         breast_x = result.max_x
         # 胸部深度
@@ -345,6 +348,7 @@ def set_joint_limits(result, joint_parent, props):
             rbc.limit_ang_y_upper = props.limit_ang_y_upper
             rbc.limit_ang_z_lower = props.limit_ang_z_lower
             rbc.limit_ang_z_upper = props.limit_ang_z_upper
+    return True, None
 
 
 def get_prop_default_value(struct, identifier):
