@@ -96,6 +96,14 @@ class RGBAPanel(bpy.types.Panel):
         row = col.row(align=True)
         row.operator(SetRgbaOperator.bl_idname, text=SetRgbaOperator.bl_label)
 
+        if props.is_processing:
+            layout.label(text=props.progress_message)
+
+            # 进度条，Blender 4.0及以上生效
+            blender_version = bpy.app.version
+            if blender_version >= (4, 0, 0):
+                layout.progress(factor=props.progress, type='BAR', text=f"{props.progress_current}/{props.progress_total}")
+
 
 class AnalysisPanel(bpy.types.Panel):
     bl_idname = "RGBA_PT_analysis"
