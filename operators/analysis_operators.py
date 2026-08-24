@@ -164,7 +164,6 @@ def sort_verts(verts):
     )
 
 
-@timeit
 def process_muti_rings(tmp_obj, loc_z, ref_co, rings, idx_ring_map):
     # 合并不同环上距离过近的顶点，使不同环相连，供后续处理
     remove_doubles_between_rings(tmp_obj, idx_ring_map, rings)
@@ -190,7 +189,7 @@ def process_muti_rings(tmp_obj, loc_z, ref_co, rings, idx_ring_map):
     # 交叉点 -> 可能的prev集合
     x_prevs_map = defaultdict(list)
     visited = set()
-    for index , start_vert in enumerate(start_verts):
+    for index, start_vert in enumerate(start_verts):
 
         # 初始化遍历参数
         curr_visited = set()
@@ -275,7 +274,7 @@ def process_muti_rings(tmp_obj, loc_z, ref_co, rings, idx_ring_map):
 
     return AnalysisStatus.OK, verts
 
-@timeit
+
 def further_process_for_base_body(source_objs, results):
     results.sort(key=lambda r: r.threshold, reverse=True)
 
@@ -600,6 +599,7 @@ def get_upper_ring_verts(obj, z_target, tol=1e-6):
     best_group = max(rings, key=lambda p: p[1])[0]  # 取总边长最大的圈
     return set(best_group)
 
+
 def get_rings(obj, z_target, tol=1e-6):
     """返回 z ≈ z_target 处所有顶点"""
 
@@ -622,6 +622,7 @@ def get_rings(obj, z_target, tol=1e-6):
             vertex_co_ring_map[co_key] = index
 
     return upper_rings, idx_ring_map, vertex_co_ring_map
+
 
 def get_under_ring_verts(obj, z_target, tol=1e-6):
     """
@@ -821,6 +822,7 @@ def get_other_islands(bm, exclude_verts):
 
     return islands
 
+
 def crop_mesh_by_z(obj, z_min, z_max):
     """获取 z_min ~ z_max 之间的部分"""
     mesh = obj.data
@@ -882,7 +884,6 @@ class AnalysisOperator(bpy.types.Operator):
         props = scene.mmd_jiggle_tools_analysis
         self.analyze(context, props)
 
-    @timeit
     def analyze(self, context, props):
         """
         分析胸部尺寸。
@@ -920,7 +921,7 @@ class AnalysisOperator(bpy.types.Operator):
         # 根据权重阈值的不同，多次分析胸部尺寸。
         results = batch_do_analysis(obj_vgs_map, analysis_type)
         if all(r.status != AnalysisStatus.OK for r in results):
-            clean_collection([TMP_COLLECTION_NAME,TMP_ANALYSIS_COLLECTION_NAME])
+            clean_collection([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
             postprocess(active_object, obj_visibility_map)
             msg = build_all_failed_msg(results)
             self.report({'ERROR'}, msg)
@@ -957,7 +958,7 @@ class AnalysisOperator(bpy.types.Operator):
 
         # 构建显示消息
         total_time = time.time() - start_time
-        msg = build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups,total_time)
+        msg = build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups, total_time)
         self.report({'INFO'}, "\n".join(msg))
 
 
@@ -1204,7 +1205,7 @@ def validate_analysis_param(active_object):
         "obj_vgs_map": obj_vgs_map,
     }
 
-@timeit
+
 def preprocess(active_object, source_objs):
     """预处理"""
     # 备份网格的隐藏状态并全部取消隐藏
@@ -1565,7 +1566,6 @@ def get_breast_cleavage(max_x, breast_verts, other_island_verts):
     return None, best_cleavage_vert
 
 
-@timeit
 def has_overlapping_faces_with_opposite_normals(obj_verts_map):
     """检查网格物体是否存在重合且法向相反的面"""
     source_faces = {}
@@ -1600,7 +1600,6 @@ def has_overlapping_faces_with_opposite_normals(obj_verts_map):
     return False
 
 
-@timeit
 def do_analysis(obj_vgs_map, threshold, analysis_type):
     """分析胸部尺寸"""
 
@@ -1698,7 +1697,7 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
         cup_inner=cup_inner,
         cup_inner_index=cup_inner_index,
         tmp_obj=tmp_obj,
-        opposite_normals = opposite_normals
+        opposite_normals=opposite_normals
     )
 
 
@@ -1787,7 +1786,7 @@ def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None, t
     bm.free()
     return tmp_col, tmp_obj, temp_mesh
 
-@timeit
+
 def batch_do_analysis(obj_vgs_map, analysis_type):
     thresholds = [0.25, 0.2, 0.15, 0.1, 0.05, 0]
 
@@ -2321,7 +2320,7 @@ def fix_self_intersection(bm, chain, i, j, cache):
     dirty = set(range(max(0, i - 1), min(len(chain) - 1, j + 2)))
     return dirty
 
-@timeit
+
 def process_bust_line(obj, ring_verts):
     max_iter = 1000
     mesh = obj.data

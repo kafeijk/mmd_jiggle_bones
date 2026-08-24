@@ -261,6 +261,7 @@ class SetRgbaOperator(bpy.types.Operator):
 
         return name, "INFO", f"执行完成，模型文件地址：{new_filepath}"
 
+
 def analyze_breast(root):
     deselect_all_objects()
     select_and_activate(root)
@@ -274,7 +275,7 @@ def analyze_breast(root):
 
     preprocess(root, source_objs)
 
-    results = batch_do_analysis(obj_vgs_map,"DEFAULT")
+    results = batch_do_analysis(obj_vgs_map, "DEFAULT")
     if all(r.status != AnalysisStatus.OK for r in results):
         msg = build_all_failed_msg(results)
         return msg, None
@@ -976,7 +977,7 @@ def get_vertices_influenced_by_bones(obj, bone_names):
     - primary:  总权重 >  WEIGHT_THRESHOLD（主要受影响顶点）
     - marginal: 总权重 在 (0, WEIGHT_THRESHOLD] 之间（轻微受影响顶点）
     """
-    primary  = []  # 权重显著的顶点
+    primary = []  # 权重显著的顶点
     marginal = []  # 权重微小但非零的顶点
 
     bone_name_set = set(bone_names)
