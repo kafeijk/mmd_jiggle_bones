@@ -16,10 +16,11 @@ class AnalysisProperty(bpy.types.PropertyGroup):
         default="DEFAULT",
     )
 
-    breast_name_str: bpy.props.StringProperty(
+    extra_bones_str: bpy.props.StringProperty(
         name="骨骼补充",
         description="通过额外的胸部骨骼名称，扩展默认胸部匹配范围\n在此处输入胸部骨骼名称，并以中文逗号或英文逗号作为分隔",
         default='breast.L,breast.R',
+        update=lambda self, context: self.sync_extra(context),
     )
 
     remove_tmp: bpy.props.BoolProperty(
@@ -35,3 +36,9 @@ class AnalysisProperty(bpy.types.PropertyGroup):
     @staticmethod
     def unregister():
         del bpy.types.Scene.mmd_jiggle_tools_analysis
+
+    def sync_extra(self, context):
+        target = context.scene.mmd_jiggle_tools_set_rgba
+        if target.extra_bones_str == self.extra_bones_str:
+            return
+        target.extra_bones_str = self.extra_bones_str

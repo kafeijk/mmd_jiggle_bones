@@ -908,7 +908,7 @@ class AnalysisOperator(bpy.types.Operator):
         remove_tmp = props.remove_tmp
 
         # 参数校验
-        err_msg, data = validate_analysis_param(active_object)
+        err_msg, data = validate_analysis_param(active_object, props.extra_bones_str)
         if err_msg:
             self.report({'ERROR'}, err_msg)
             return
@@ -1150,7 +1150,7 @@ def get_obj_vgs_map(objs, b_names_l):
     return obj_vgs_map
 
 
-def validate_analysis_param(active_object):
+def validate_analysis_param(active_object, extra_bones):
     """参数校验"""
     if active_object is None:
         return "请选择模型！", None
@@ -1172,7 +1172,7 @@ def validate_analysis_param(active_object):
         return "源模型中未找到网格！", None
 
     # 胸部骨骼
-    breast_bones_map = get_breast_bones_map(source_armatures)
+    breast_bones_map = get_breast_bones_map(source_armatures, extra_bones)
     if not breast_bones_map:
         return "源模型中未找到胸部骨骼！", None
 

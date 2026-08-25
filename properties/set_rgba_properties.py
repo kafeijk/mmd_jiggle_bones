@@ -201,6 +201,13 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         update=lambda self, context: self.skip_13(context),
     )
 
+    extra_bones_str: bpy.props.StringProperty(
+        name="骨骼补充",
+        description="通过额外的胸部骨骼名称，扩展默认胸部匹配范围\n在此处输入胸部骨骼名称，并以中文逗号或英文逗号作为分隔",
+        default='breast.L,breast.R',
+        update=lambda self, context: self.sync_extra(context),
+    )
+
     breast_x: bpy.props.FloatProperty(
         name="单侧胸宽",
         subtype="DISTANCE",
@@ -273,6 +280,12 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         # 13 是手臂的碰撞组，避免使用13
         if self.collision_group_number == 13:
             self.collision_group_number = 12
+
+    def sync_extra(self, context):
+        target = context.scene.mmd_jiggle_tools_analysis
+        if target.extra_bones_str == self.extra_bones_str:
+            return
+        target.extra_bones_str = self.extra_bones_str
 
     def _sync_pair(self, sync, lower_attr, upper_attr, changed_property):
         if not sync:

@@ -477,7 +477,7 @@ def get_breast_bones(root):
     return breast_bones
 
 
-def get_breast_bones_map(armatures):
+def get_breast_bones_map(armatures, extra_bones):
     """
     获取骨架与胸部骨骼的映射
 
@@ -495,6 +495,15 @@ def get_breast_bones_map(armatures):
     if not isinstance(armatures, (list, tuple, set)):
         armatures = [armatures]
 
+    if isinstance(extra_bones, str):
+        extra_bones = [
+            name.strip()
+            for name in re.split(r"[,，]+", extra_bones)
+            if name.strip()
+        ]
+    else:
+        extra_bones = extra_bones
+
     breast_bones_map = {}
 
     for armature in armatures:
@@ -504,6 +513,10 @@ def get_breast_bones_map(armatures):
             b_name = bone.name
 
             if is_dummy_bone(b_name):
+                continue
+
+            if b_name in extra_bones:
+                breast_bones.append(bone)
                 continue
 
             if BREAST_BONE_PATTERN.match(b_name):

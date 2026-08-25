@@ -200,7 +200,7 @@ class SetRgbaOperator(bpy.types.Operator):
         obj = objs[0]
 
         # 获取源模型胸部骨骼列表
-        breast_bones_map = get_breast_bones_map(armature)
+        breast_bones_map = get_breast_bones_map(armature, props.extra_bones_str)
         if not breast_bones_map:
             clean_tmp_collection()
             return name, "ERROR", "源模型中未找到胸部骨骼"
@@ -284,7 +284,7 @@ class SetRgbaOperator(bpy.types.Operator):
         apply_location_diff(root_l, armature_l, bone_l, dummy_tail_lo_l,
                             root_r, armature_r, bone_r, dummy_tail_lo_r, rb_parent_l)
         # 删除源模型胸部骨骼及对应的刚体Joint，防止刚体Joint重名
-        b_names_l, b_names_r = remove_breast_bones(root, armature, rb_parent, kept_joints)
+        b_names_l, b_names_r = remove_breast_bones(root, armature, rb_parent, kept_joints, props.extra_bones_str)
         # 通过MMD Tools手术，合并模型
         join_model(armature, armature_l, armature_r, target_upper_body_name)
 
@@ -339,11 +339,11 @@ class SetRgbaOperator(bpy.types.Operator):
         return name, "INFO", f"执行完成，模型文件地址：{new_filepath}"
 
 
-def analyze_breast(root):
+def analyze_breast(root, extra_bones):
     deselect_all_objects()
     select_and_activate(root)
 
-    err_msg, data = validate_analysis_param(root)
+    err_msg, data = validate_analysis_param(root, extra_bones)
     if err_msg:
         return err_msg, None
 
@@ -372,7 +372,7 @@ def set_joint_limits(root, joint_parent, props):
         # RGBA刚体依然保留了普通胸部刚体的结构，包括胸部骨骼、胸部刚体和胸部Joint，其余刚体与Joint仅作为辅助使用。
         # 也就是说，真正影响胸部骨骼运动的刚体是绑定到该骨骼的物理刚体，因此只需修改对应Joint的限定值即可实现抖动幅度的变化。
         # 另外，改变胸部权重会影响原本模型，导致其被修改后不适合继续作为其它流程的基模，而修改Joint限定值可以解决该问题
-        err_msg, result = analyze_breast(root)
+        err_msg, result = analyze_breast(root, props.extra_bones_str)
         if err_msg:
             return False, err_msg, None
 
@@ -709,9 +709,9 @@ def get_dummy_breast_coords(armature, breast_bones, horizontal_bones, influenced
     return dummy_head_lo_l, dummy_head_lo_r, dummy_tail_lo_l, dummy_tail_lo_r, x_r, z_r
 
 
-def remove_breast_bones(root, armature, rb_parent, kept_joints):
+def remove_breast_bones(root, armature, rb_parent, kept_joints, extra_bones):
     # 记录被删除的骨骼属于左侧还是右侧
-    breast_bones_map = get_breast_bones_map(armature)
+    breast_bones_map = get_breast_bones_map(armature, extra_bones)
     breast_bones = next(iter(breast_bones_map.values()))
     breast_names = [b.name for b in breast_bones]
     b_names_l = []

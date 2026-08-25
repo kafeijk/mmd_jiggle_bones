@@ -3,6 +3,7 @@ import bpy
 
 from ..operators.set_rgba_operators import SetRgbaOperator
 from ..operators.analysis_operators import AnalysisOperator
+from ..operators.utility_operators import GetSelectedBoneNameOperator
 
 
 class RGBAPanel(bpy.types.Panel):
@@ -17,7 +18,6 @@ class RGBAPanel(bpy.types.Panel):
 
         scene = context.scene
         props = scene.mmd_jiggle_tools_set_rgba
-        analysis_props = scene.mmd_jiggle_tools_analysis
         batch = props.batch
 
         layout = self.layout
@@ -30,7 +30,10 @@ class RGBAPanel(bpy.types.Panel):
         col.prop(props, "collision")
         col.prop(props, "rb_scale_factor")
         col.prop(props, "collision_group_number")
-        col.prop(analysis_props, "breast_name_str")
+
+        extra_row = col.row()
+        extra_row.prop(props, "extra_bones_str")
+        extra_row.operator(GetSelectedBoneNameOperator.bl_idname, text="", icon="MOUSE_LMB")
 
         if props.jiggle_adjustment_mode == "DEFAULT":
             pass
@@ -124,7 +127,11 @@ class AnalysisPanel(bpy.types.Panel):
         col = layout.column()
 
         col.prop(props, "type")
-        col.prop(props, "breast_name_str")
+
+        extra_row = col.row()
+        extra_row.prop(props, "extra_bones_str")
+        extra_row.operator(GetSelectedBoneNameOperator.bl_idname, text="", icon="MOUSE_LMB")
+
         col.prop(props, "remove_tmp")
         col.operator(AnalysisOperator.bl_idname, text=AnalysisOperator.bl_label)
 
