@@ -1624,7 +1624,7 @@ def get_breast_nipple(bm, temp_obj, breast_verts, under_vert, other_island_verts
 
     def find_upper_vert():
         if analysis_type == "DEFAULT":
-            return min(breast_verts_set, key=lambda v: v.co.y)
+            return min(sort_verts(breast_verts_set), key=lambda v: v.co.y)
         else:
             # 将顶点投影到直线 y = -x 上，取投影后 y 值最小的顶点 proj_vert，
             # 将 min_y_vert 与 proj_vert 的连接边的平均边长相比较，取较小的那个（乳首处通常较为密集）
@@ -1646,12 +1646,12 @@ def get_breast_nipple(bm, temp_obj, breast_verts, under_vert, other_island_verts
             # --------------------
 
             # 原始 y 坐标最小的顶点
-            min_y_vert = min(breast_verts_set, key=lambda v: v.co.y)
+            min_y_vert = min(sort_verts(breast_verts_set), key=lambda v: v.co.y)
 
             # 投影到 y = -x 上 y 值最小的顶点
             # 因为 proj_y = (y - x) / 2，要找投影 y 最小的点，
             # 等价于找 (y - x) 最小的点（除以 2 是正数缩放，不影响最小值结果）
-            proj_vert = min(breast_verts_set, key=lambda v: v.co.y - v.co.x)
+            proj_vert = min(sort_verts(breast_verts_set), key=lambda v: v.co.y - v.co.x)
 
             # 比较两个候选顶点 link_edges 的平均长度，取边长较小的那个
             candidates = [min_y_vert, proj_vert]
@@ -1904,7 +1904,7 @@ def get_breast_lower(max_x, boundary):
             break
 
     lower_vert = min(
-        lower_verts,
+        sort_verts(lower_verts),
         key=lambda v: v.co.z
     )
     return lower_vert
