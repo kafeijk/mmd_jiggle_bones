@@ -20,7 +20,7 @@ class AnalysisStatus(Enum):
     BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP = (7, "胸部网格结构复杂！乳首与乳根位置相同。")
     BREAST_MESH_COMPLEX_NO_UPPER_BUST = (8, "胸部网格结构复杂！无法准确获取上胸围，请删除无关内容后重试。")
     BREAST_MESH_COMPLEX_NO_UNDER_BUST = (9, "胸部网格结构复杂！无法准确获取下胸围，请删除无关内容后重试。")
-    BUST_DIFF_TOO_LARGE = (10, "胸部网格结构复杂！胸围差计算异常，请删除无关内容后重试。")
+    BUST_DIFF_TOO_LARGE = (10, "胸部网格结构复杂！胸围差过大，请删除无关内容后重试。")
     BUST_DIFF_NEGATIVE = (11, "胸部网格结构复杂！胸围差为负值，请删除无关内容后重试。")
     BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS = (12, "胸部网格结构复杂！存在重叠且法向相反的面，请删除无关内容后重试。")
     BREAST_MESH_COMPLEX_TOO_MANY_UPPER_RINGS = (13, "胸部网格结构复杂，检测到异常数量的上胸围环。请删除无关内容后重试。")
@@ -480,7 +480,7 @@ def further_process_for_base_body(source_objs, b_names, results):
 
         if cup == STANDARD_CUP_LIST[-1][1]:
             result.status = AnalysisStatus.BUST_DIFF_TOO_LARGE
-            result.msg = f"{AnalysisStatus.BUST_DIFF_TOO_LARGE.msg}上胸围：{round(upper_bust * 100, 2)} cm 下胸围：{round(under_bust * 100, 2)} cm"
+            result.msg = f"{AnalysisStatus.BUST_DIFF_TOO_LARGE.msg}上胸围：{round(upper_bust * 100, 2)} cm 下胸围：{round(under_bust * 100, 2)} cm 胸围差：{round(bust_diff * 100, 2)} cm"
             continue
 
     return results
