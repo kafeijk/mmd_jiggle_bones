@@ -285,6 +285,27 @@ def process_muti_rings(tmp_obj, loc_z, ref_co, rings):
     return None, verts
 
 
+def remove_z_verts_except_ring(obj, upper_ring, loc_z, tol=1e-6):
+    mesh = obj.data
+
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+
+    keep_indices = set(upper_ring)
+
+    remove_verts = [
+        v for v in bm.verts
+        if abs(v.co.z - loc_z) < tol and v.index not in keep_indices
+    ]
+
+    if remove_verts:
+        bmesh.ops.delete(bm, geom=remove_verts, context='VERTS')
+
+    bm.to_mesh(mesh)
+    mesh.update()
+    bm.free()
+
+
 def further_process_for_base_body(source_objs, b_names, results):
     results.sort(key=lambda r: r.threshold, reverse=True)
 
@@ -343,7 +364,8 @@ def further_process_for_base_body(source_objs, b_names, results):
             result.msg = status.msg
             continue
 
-        # 获取upper_rings，如果upper_rings存在多个环，需通过合并的方式减少环，并消除环的自交及凹陷点（Hanako_BaseBody）
+        # 获取upper_ring
+        # 如果upper_ring存在多个环，需通过合并的方式减少环
         if len(upper_rings) > 1:
             status, upper_ring = process_muti_rings(tmp_obj, nipple_z, result.nipple_co, upper_rings)
             # 胸部结构复杂直接返回
@@ -353,16 +375,15 @@ def further_process_for_base_body(source_objs, b_names, results):
                 continue
         else:
             upper_ring = upper_rings[0] if upper_rings else []
-        process_bust_line(tmp_obj, upper_ring)
+        # 首次获取 upper_ring 后，移除其它位于 nipple_z 的顶点
+        remove_z_verts_except_ring(tmp_obj, upper_ring, nipple_z)
 
         # 获取under_rings
         under_ring = get_under_ring(tmp_obj, under_z, b_names)
-        process_bust_line(tmp_obj, under_ring)
+        # 首次获取 under_rings 后，移除其它位于 under_z 的顶点
+        remove_z_verts_except_ring(tmp_obj, under_ring, under_z)
 
-        # 获取唯一的上圈和下圈
-        # 之前的流程主要针对素体模型进行优化，对于非素体模型中的饰品等无关结构，可能无法完全准确排除。
-        # 在唯一确定检测环后再次处理，可以提高非素体模型的处理成功率，以及不同Blender版本下执行结果的一致性。（例如：卡拉比丘的星绘_沐春灼华_进阶后_紫）
-        # 如果仍然出现选择错误，则交由用户自行处理。
+        # 消除环的自交及凹陷点（例如 Hanako_BaseBody）
         upper_ring = get_upper_ring(tmp_obj, nipple_z)
         process_bust_line(tmp_obj, upper_ring)
         under_ring = get_under_ring(tmp_obj, under_z, b_names)
@@ -770,10 +791,9 @@ def get_upper_ring(obj, z_target, tol=1e-6):
         return set()
 
     ring_lengths = get_ring_lengths(obj, rings)
+    sorted_rings = sorted(ring_lengths, key=ring_lengths.get, reverse=True)
 
-    max_ring = max(ring_lengths, key=ring_lengths.get)
-
-    return set(max_ring)
+    return set(sorted_rings[0])
 
 
 def get_under_ring(obj, z_target, b_names, tol=1e-6):
