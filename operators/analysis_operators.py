@@ -335,7 +335,7 @@ def further_process_for_base_body(source_objs, b_names, results):
         keep_islands_between_z(tmp_obj, result.under_co, result.nipple_co)
 
         # 避免极端情况下，环数过多或缺失
-        upper_rings, under_rings, status = check_rings(tmp_obj, nipple_z, under_z)
+        upper_rings, under_rings, status = get_and_check_rings(tmp_obj, nipple_z, under_z, max_ring_count=MAX_RING_COUNT)
         if status:
             result.status = status
             result.msg = status.msg
@@ -484,19 +484,18 @@ def further_process_for_base_body(source_objs, b_names, results):
     return results
 
 
-def check_rings(tmp_obj, nipple_z, under_z):
+def get_and_check_rings(tmp_obj, nipple_z, under_z, max_ring_count=MAX_RING_COUNT):
     """检测环数过多或缺失"""
-    upper_rings = get_rings_at_z(tmp_obj, nipple_z)
-    if len(upper_rings) >= 10:
+    upper_rings = get_rings_at_z(tmp_obj, nipple_z, max_ring_count=max_ring_count)
+    if len(upper_rings) >= max_ring_count:
         status = AnalysisStatus.BREAST_MESH_COMPLEX_TOO_MANY_UPPER_RINGS
         return None, None, status
     if len(upper_rings) == 0:
         status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_RINGS
         return None, None, status
 
-    under_rings = get_rings_at_z(tmp_obj, under_z)
-    print(f"len(under_rings) :{len(under_rings) }")
-    if len(under_rings) >= 10:
+    under_rings = get_rings_at_z(tmp_obj, under_z, max_ring_count=max_ring_count)
+    if len(under_rings) >= max_ring_count:
         status = AnalysisStatus.BREAST_MESH_COMPLEX_TOO_MANY_UNDER_RINGS
         return None, None, status
     if len(under_rings) == 0:
@@ -535,7 +534,7 @@ def get_edge_key(v0, v1):
     return tuple(sorted((v0, v1)))
 
 
-def get_rings_at_z(obj, z_target, tol=1e-6):
+def get_rings_at_z(obj, z_target, tol=1e-6, max_ring_count=MAX_RING_COUNT):
     """
     获取 z ≈ z_target 处的所有闭合环
     一个顶点可以属于多个环，一条边也可以属于多个环
@@ -584,13 +583,13 @@ def get_rings_at_z(obj, z_target, tol=1e-6):
     # D────E────F
     # │    │    │
     # G────H────I
-    cycles = find_simple_cycles(adjacency)
+    cycles = find_simple_cycles(adjacency, max_ring_count)
 
     return cycles
 
 
-def find_simple_cycles(adjacency, max_cycles=10):
-    """在无向图中寻找简单环，最多返回 max_cycles 个"""
+def find_simple_cycles(adjacency, max_ring_count):
+    """在无向图中寻找简单环，最多返回 max_ring_count 个"""
     cycles = set()
     vertices = sorted(adjacency)
 
@@ -606,7 +605,7 @@ def find_simple_cycles(adjacency, max_cycles=10):
             visited=visited,
             path=path,
             cycles=cycles,
-            max_cycles=max_cycles,
+            max_ring_count=max_ring_count,
         )
 
         # 已经找到足够数量的环，直接结束
@@ -616,7 +615,7 @@ def find_simple_cycles(adjacency, max_cycles=10):
     return [list(cycle) for cycle in cycles]
 
 
-def dfs_find_cycles(start, current, adjacency, visited, path, cycles, max_cycles):
+def dfs_find_cycles(start, current, adjacency, visited, path, cycles, max_ring_count):
     """
     DFS 搜索从 start 出发的简单环。
 
@@ -635,7 +634,7 @@ def dfs_find_cycles(start, current, adjacency, visited, path, cycles, max_cycles
                 cycles.add(cycle)
 
                 # 达到数量限制，立即终止整个搜索
-                if len(cycles) >= max_cycles:
+                if len(cycles) >= max_ring_count:
                     return True
 
             continue
@@ -664,7 +663,7 @@ def dfs_find_cycles(start, current, adjacency, visited, path, cycles, max_cycles
             visited=visited,
             path=path,
             cycles=cycles,
-            max_cycles=max_cycles,
+            max_ring_count=max_ring_count,
         )
 
         path.pop()

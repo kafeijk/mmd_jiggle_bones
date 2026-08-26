@@ -148,6 +148,9 @@ STANDARD_CUP_LIST = [
 # cup值到索引的映射
 STANDARD_CUP_INDEX_MAP= {v: i for i, (k, v) in enumerate(STANDARD_CUP_LIST)}
 
+# 最大环数量
+MAX_RING_COUNT = 10
+
 def get_standard_cup_index(value):
     return CUP_INDEX_MAP.get(value, -1)
 
