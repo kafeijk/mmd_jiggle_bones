@@ -19,10 +19,14 @@ class AnalysisStatus(Enum):
     BREAST_MESH_COMPLEX = (6, "胸部网格结构复杂！请删除无关内容后重试。")
     BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP = (7, "胸部网格结构复杂！乳首与乳根位置相同。")
     BREAST_MESH_COMPLEX_NO_UPPER_BUST = (8, "胸部网格结构复杂！无法准确获取上胸围，请删除无关内容后重试。")
-    BREAST_MESH_COMPLEX_NO_LOWER_BUST = (9, "胸部网格结构复杂！无法准确获取下胸围，请删除无关内容后重试。")
+    BREAST_MESH_COMPLEX_NO_UNDER_BUST = (9, "胸部网格结构复杂！无法准确获取下胸围，请删除无关内容后重试。")
     BUST_DIFF_TOO_LARGE = (10, "胸部网格结构复杂！胸围差计算异常，请删除无关内容后重试。")
     BUST_DIFF_NEGATIVE = (11, "胸部网格结构复杂！胸围差为负值，请删除无关内容后重试。")
     BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS = (12, "胸部网格结构复杂！存在重叠且法向相反的面，请删除无关内容后重试。")
+    BREAST_MESH_COMPLEX_TOO_MANY_UPPER_RINGS = (13, "胸部网格结构复杂，检测到异常数量的上胸围环。请删除无关内容后重试。")
+    BREAST_MESH_COMPLEX_TOO_MANY_UNDER_RINGS = (14, "胸部网格结构复杂，检测到异常数量的下胸围环。请删除无关内容后重试。")
+    BREAST_MESH_COMPLEX_NO_UPPER_RINGS = (15, "胸部网格结构复杂，未检测到上胸围环。请检查后重试。")
+    BREAST_MESH_COMPLEX_NO_UNDER_RINGS = (16, "胸部网格结构复杂，未检测到下胸围环。请检查后重试。")
     ERROR = (99, "未知错误！")
 
     def __init__(self, code, msg):
@@ -164,8 +168,12 @@ def sort_verts(verts):
     )
 
 
-def process_muti_rings(tmp_obj, loc_z, ref_co, rings, idx_ring_map):
+def process_muti_rings(tmp_obj, loc_z, ref_co, rings):
     # 合并不同环上距离过近的顶点，使不同环相连，供后续处理
+    idx_ring_map = {}
+    for ring_idx, ring in enumerate(rings):
+        for v_idx in ring:
+            idx_ring_map[v_idx] = ring_idx
     remove_doubles_between_rings(tmp_obj, idx_ring_map, rings)
 
     bm = bmesh.new()
@@ -272,10 +280,10 @@ def process_muti_rings(tmp_obj, loc_z, ref_co, rings, idx_ring_map):
     tmp_obj.data.update()
     bm.free()
 
-    return AnalysisStatus.OK, verts
+    return None, verts
 
 
-def further_process_for_base_body(source_objs, results):
+def further_process_for_base_body(source_objs, b_names, results):
     results.sort(key=lambda r: r.threshold, reverse=True)
 
     for index, result in enumerate(results):
@@ -326,54 +334,47 @@ def further_process_for_base_body(source_objs, results):
         # 此处因为是位置校验而非顶点校验，所以islands可能会多选，需要后续进一步处理
         keep_islands_between_z(tmp_obj, result.under_co, result.nipple_co)
 
-        # 获取upper_rings，如果upper_rings存在多个环，需通过合并的方式减少环，并进一步处理（Hanako_BaseBody）
-        upper_rings, idx_ring_map, vertex_co_ring_map = get_rings(tmp_obj, nipple_z)
+        # 避免极端情况下，环数过多或缺失
+        upper_rings, under_rings, status = check_rings(tmp_obj, nipple_z, under_z)
+        if status:
+            result.status = status
+            result.msg = status.msg
+            continue
+
+        # 获取upper_rings，如果upper_rings存在多个环，需通过合并的方式减少环，并消除环的自交及凹陷点（Hanako_BaseBody）
         if len(upper_rings) > 1:
-            status, upper_ring_verts = process_muti_rings(tmp_obj, nipple_z, result.nipple_co, upper_rings,
-                                                          idx_ring_map)
+            status, upper_ring = process_muti_rings(tmp_obj, nipple_z, result.nipple_co, upper_rings)
             # 胸部结构复杂直接返回
-            if status == AnalysisStatus.BREAST_MESH_COMPLEX:
-                result.status = AnalysisStatus.BREAST_MESH_COMPLEX
+            if status:
+                result.status = status
                 result.msg = status.msg
                 continue
         else:
-            upper_ring_verts = idx_ring_map.keys()
-        process_bust_line(tmp_obj, upper_ring_verts)
+            upper_ring = upper_rings[0] if upper_rings else []
+        process_bust_line(tmp_obj, upper_ring)
 
         # 获取under_rings
-        # 当under_rings包含多个候选环时，由于不同胸部尺寸下环的位置和数量存在差异，无法可靠地指定唯一目标环。
-        # 因此采用与upper_rings相同的处理策略，以保持逻辑一致。
-        under_rings, idx_ring_map, vertex_co_ring_map = get_rings(tmp_obj, under_z)
-        if len(under_rings) > 1:
-            status, under_ring_verts = process_muti_rings(tmp_obj, under_z, result.under_co, under_rings,
-                                                          idx_ring_map)
-            # 胸部结构复杂直接返回
-            if status == AnalysisStatus.BREAST_MESH_COMPLEX:
-                result.status = AnalysisStatus.BREAST_MESH_COMPLEX
-                result.msg = status.msg
-                continue
-        else:
-            under_ring_verts = idx_ring_map.keys()
-        process_bust_line(tmp_obj, under_ring_verts)
+        under_ring = get_under_ring(tmp_obj, under_z, b_names)
+        process_bust_line(tmp_obj, under_ring)
 
         # 获取唯一的上圈和下圈
         # 之前的流程主要针对素体模型进行优化，对于非素体模型中的饰品等无关结构，可能无法完全准确排除。
         # 在唯一确定检测环后再次处理，可以提高非素体模型的处理成功率，以及不同Blender版本下执行结果的一致性。（例如：卡拉比丘的星绘_沐春灼华_进阶后_紫）
         # 如果仍然出现选择错误，则交由用户自行处理。
-        upper_ring_verts = get_upper_ring_verts(tmp_obj, nipple_z)
-        process_bust_line(tmp_obj, upper_ring_verts)
-        under_ring_verts = get_under_ring_verts(tmp_obj, under_z)
-        process_bust_line(tmp_obj, under_ring_verts)
+        upper_ring = get_upper_ring(tmp_obj, nipple_z)
+        process_bust_line(tmp_obj, upper_ring)
+        under_ring = get_under_ring(tmp_obj, under_z, b_names)
+        process_bust_line(tmp_obj, under_ring)
 
         # 再次获取上圈和下圈
-        upper_ring_verts = get_upper_ring_verts(tmp_obj, nipple_z)
-        under_ring_verts = get_under_ring_verts(tmp_obj, under_z)
+        upper_ring = get_upper_ring(tmp_obj, nipple_z)
+        under_ring = get_under_ring(tmp_obj, under_z, b_names)
 
         # 删除圈外顶点
         bm = bmesh.new()
         bm.from_mesh(tmp_obj.data)
         bm.verts.ensure_lookup_table()
-        keep = upper_ring_verts | under_ring_verts
+        keep = upper_ring | under_ring
         verts_to_delete = [v for v in bm.verts if v.index not in keep]
         bmesh.ops.delete(bm, geom=verts_to_delete, context='VERTS')
 
@@ -390,8 +391,8 @@ def further_process_for_base_body(source_objs, results):
         bm.free()
 
         # 再次获取上圈和下圈
-        upper_ring_verts = get_upper_ring_verts(tmp_obj, nipple_z)
-        under_ring_verts = get_under_ring_verts(tmp_obj, under_z)
+        upper_ring = get_upper_ring(tmp_obj, nipple_z)
+        under_ring = get_under_ring(tmp_obj, under_z, b_names)
 
         # 删除 upper_ring_verts 与 under_ring_verts 之间的边
         edges_to_delete = []
@@ -402,9 +403,9 @@ def further_process_for_base_body(source_objs, results):
             v1, v2 = edge.verts
             # 一个顶点属于上圈，另一个顶点属于下圈
             if (
-                    (v1.index in upper_ring_verts and v2.index in under_ring_verts)
+                    (v1.index in upper_ring and v2.index in under_ring)
                     or
-                    (v2.index in upper_ring_verts and v1.index in under_ring_verts)
+                    (v2.index in upper_ring and v1.index in under_ring)
             ):
                 edges_to_delete.append(edge)
         # 删除边
@@ -416,22 +417,22 @@ def further_process_for_base_body(source_objs, results):
         bm.free()
 
         # 如果任一上下胸围顶点数小于2，则无法构成边，直接continue
-        if len(upper_ring_verts) < 2:
+        if len(upper_ring) < 2:
             result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST
             result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST.msg
             continue
-        if len(under_ring_verts) < 2:
-            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_LOWER_BUST
-            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_LOWER_BUST.msg
+        if len(under_ring) < 2:
+            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST
+            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST.msg
             continue
 
         # 计算上胸围
-        upper_ring_verts = get_upper_ring_verts(tmp_obj, nipple_z)
-        upper_bust = get_ring_edge_length(tmp_obj, upper_ring_verts)
+        upper_ring = get_upper_ring(tmp_obj, nipple_z)
+        upper_bust = get_ring_edge_length(tmp_obj, upper_ring)
 
         # 计算下胸围
-        under_ring_verts = get_under_ring_verts(tmp_obj, under_z)
-        under_bust = get_ring_edge_length(tmp_obj, under_ring_verts)
+        under_ring = get_under_ring(tmp_obj, under_z, b_names)
+        under_bust = get_ring_edge_length(tmp_obj, under_ring)
 
         # 再次校验，增加健壮性（例如：心夏_鸭子摇滚）
         if not upper_bust:
@@ -440,8 +441,8 @@ def further_process_for_base_body(source_objs, results):
             continue
 
         if not under_bust:
-            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_LOWER_BUST
-            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_LOWER_BUST.msg
+            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST
+            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST.msg
             continue
 
         # 取消顶点选中
@@ -483,9 +484,26 @@ def further_process_for_base_body(source_objs, results):
     return results
 
 
-def is_closed_ring(group, edge_count):
-    """判断一个组是否已经是闭合环：顶点数 == 边数"""
-    return edge_count == len(group)  # 闭合环的边数恰好等于顶点数
+def check_rings(tmp_obj, nipple_z, under_z):
+    """检测环数过多或缺失"""
+    upper_rings = get_rings_at_z(tmp_obj, nipple_z)
+    if len(upper_rings) >= 10:
+        status = AnalysisStatus.BREAST_MESH_COMPLEX_TOO_MANY_UPPER_RINGS
+        return None, None, status
+    if len(upper_rings) == 0:
+        status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_RINGS
+        return None, None, status
+
+    under_rings = get_rings_at_z(tmp_obj, under_z)
+    print(f"len(under_rings) :{len(under_rings) }")
+    if len(under_rings) >= 10:
+        status = AnalysisStatus.BREAST_MESH_COMPLEX_TOO_MANY_UNDER_RINGS
+        return None, None, status
+    if len(under_rings) == 0:
+        status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_RINGS
+        return None, None, status
+
+    return upper_rings, under_rings, None
 
 
 def get_sorted_edges(obj):
@@ -512,92 +530,214 @@ def get_sorted_edges(obj):
     return [edge for edge, _ in edge_centers]
 
 
-def get_rings_at_z(obj, z_target, tol=1e-6):
-    """获取 z ≈ z_target 处所有顶点圈，返回 list of (group_set, total_length)"""
+def get_edge_key(v0, v1):
+    """获取无向边的唯一 key"""
+    return tuple(sorted((v0, v1)))
 
-    candidates = {v.index: v for v in obj.data.vertices if abs(v.co.z - z_target) < tol}
+
+def get_rings_at_z(obj, z_target, tol=1e-6):
+    """
+    获取 z ≈ z_target 处的所有闭合环
+    一个顶点可以属于多个环，一条边也可以属于多个环
+
+    通过循环边获取的环，无法保证遍历结果一定构成闭合环；同时，当多个环存在共用顶点时，会将其误判为同一个环，因此排除这种处理方式。
+    """
+
+    mesh = obj.data
+
+    # 获取目标 Z 高度上的顶点
+    candidates = {v.index: v for v in mesh.vertices if abs(v.co.z - z_target) < tol}
     if not candidates:
         return []
+    candidate_indices = set(candidates.keys())
 
-    groups = []
-    index_to_group = {}
-    group_length = []
-    group_edge_count = []  # 与 groups 一一对应，存放该圈已收录的边数
-
-    for edge in get_sorted_edges(obj):
-        v0, v1 = edge.vertices[0], edge.vertices[1]
-        if v0 not in candidates or v1 not in candidates:
+    # 建立无向图
+    # vertex -> 相邻 vertex
+    adjacency = defaultdict(set)
+    # (v0, v1) -> 边长
+    edge_length = {}
+    for edge in mesh.edges:
+        v0, v1 = edge.vertices
+        if v0 not in candidate_indices or v1 not in candidate_indices:
             continue
 
+        adjacency[v0].add(v1)
+        adjacency[v1].add(v0)
+
+        key = get_edge_key(v0, v1)
         length = (candidates[v0].co - candidates[v1].co).length
-        g0 = index_to_group.get(v0)
-        g1 = index_to_group.get(v1)
+        edge_length[key] = length
 
-        # 1. 处理边 A-B → 新建组0: {A, B}
-        # 2. 处理边 C-D → 新建组1: {C, D}   ← C和D还不知道自己和A、B是同一个圈
-        # 3. 处理边 B-C → B在组0，C在组1 → 合并！组0变成 {A, B, C, D}
-        # 4. 处理边 D-A → 两端都已在组0 → g0==g1
-        if g0 is None and g1 is None:
-            # 两端都还没有归属，新建一个圈
-            groups.append({v0, v1})
-            group_length.append(length)
-            group_edge_count.append(1)  # 新圈第一条边
-            index_to_group[v0] = len(groups) - 1
-            index_to_group[v1] = len(groups) - 1
+    # 移除孤立顶点
+    adjacency = {
+        v: neighbors
+        for v, neighbors in adjacency.items()
+        if neighbors
+    }
 
-        elif g0 is None:
-            # v0 没有归属，并入 v1 所在的圈
-            groups[g1].add(v0)
-            group_length[g1] += length
-            group_edge_count[g1] += 1
-            index_to_group[v0] = g1
+    if not adjacency:
+        return []
 
-        elif g1 is None:
-            # v1 没有归属，并入 v0 所在的圈
-            groups[g0].add(v1)
-            group_length[g0] += length
-            group_edge_count[g0] += 1
-            index_to_group[v1] = g0
+    # 搜索所有简单环，允许环之间共用顶点和边
+    # A────B────C
+    # │    │    │
+    # D────E────F
+    # │    │    │
+    # G────H────I
+    cycles = find_simple_cycles(adjacency)
 
-        elif g0 != g1:
-            # 两端分属不同的圈，检查两个圈是否都已经闭合
-            r0_closed = is_closed_ring(groups[g0], group_edge_count[g0])
-            r1_closed = is_closed_ring(groups[g1], group_edge_count[g1])
-            if r0_closed and r1_closed:
-                # 两个圈都已闭合，这条边是跨圈连接边，跳过，不合并
-                continue
-            # 否则正常合并
-            groups[g0] |= groups[g1]
-            group_length[g0] += group_length[g1] + length
-            group_edge_count[g0] += group_edge_count[g1] + 1
-            for idx in groups[g1]:
-                index_to_group[idx] = g0
-            groups[g1] = set()
-            group_length[g1] = 0.0
-            group_edge_count[g1] = 0
+    return cycles
 
-        else:
-            # g0 == g1，两端在同一个圈，这条边是闭合边，只累加边长和边数
-            group_length[g0] += length
-            group_edge_count[g0] += 1
 
-    # 前面为收集环上顶点，这里再次校验环是否已经闭合
-    valid_rings = []
-    for g, length, edge_count in zip(groups, group_length, group_edge_count):
-        if not g:
+def find_simple_cycles(adjacency, max_cycles=10):
+    """在无向图中寻找简单环，最多返回 max_cycles 个"""
+    cycles = set()
+    vertices = sorted(adjacency)
+
+    for start in vertices:
+
+        visited = {start}
+        path = [start]
+
+        reached_limit = dfs_find_cycles(
+            start=start,
+            current=start,
+            adjacency=adjacency,
+            visited=visited,
+            path=path,
+            cycles=cycles,
+            max_cycles=max_cycles,
+        )
+
+        # 已经找到足够数量的环，直接结束
+        if reached_limit:
+            break
+
+    return [list(cycle) for cycle in cycles]
+
+
+def dfs_find_cycles(start, current, adjacency, visited, path, cycles, max_cycles):
+    """
+    DFS 搜索从 start 出发的简单环。
+
+    返回：
+        True  -> 已达到 max_cycles
+        False -> 尚未达到 max_cycles
+    """
+
+    for neighbor in adjacency[current]:
+
+        # 回到起点
+        if neighbor == start:
+            if len(path) >= 3:
+                cycle = canonical_cycle(path)
+                # 去除重复环
+                cycles.add(cycle)
+
+                # 达到数量限制，立即终止整个搜索
+                if len(cycles) >= max_cycles:
+                    return True
+
             continue
-        if is_closed_ring(g, edge_count):
-            valid_rings.append((g, length))
-    return valid_rings
+
+        # 跳过已访问
+        if neighbor in visited:
+            continue
+
+        # 剪枝
+        # start为排序后更小一侧的顶点，只允许访问 >= start 的顶点
+        # 1 ─ 2
+        # │   │
+        # 4 ─ 3
+        # 允许   1 → 2 → 3 → 4 → 1
+        # 不许   2 → 3 → 4 → 1 → 2
+        if neighbor < start:
+            continue
+
+        visited.add(neighbor)
+        path.append(neighbor)
+
+        reached_limit = dfs_find_cycles(
+            start=start,
+            current=neighbor,
+            adjacency=adjacency,
+            visited=visited,
+            path=path,
+            cycles=cycles,
+            max_cycles=max_cycles,
+        )
+
+        path.pop()
+        visited.remove(neighbor)
+
+        if reached_limit:
+            return True
+
+    return False
 
 
-def get_upper_ring_verts(obj, z_target, tol=1e-6):
-    """返回 z ≈ z_target 处边长总和最大的顶点圈的索引集合"""
-    rings = get_rings_at_z(obj, z_target, tol)
-    if not rings:
-        return set()
-    best_group = max(rings, key=lambda p: p[1])[0]  # 取总边长最大的圈
-    return set(best_group)
+def canonical_cycle(cycle):
+    """将无序环转换成唯一表示"""
+
+    # 例
+    # 1 ─ 2
+    # │   │
+    # 4 ─ 3
+    n = len(cycle)
+
+    # cycle：1 → 2 → 3 → 4
+    # reversed(cycle)：1 → 4 → 3 → 2
+    # 得到
+    # [
+    #     (1, 2, 3, 4),
+    #     (2, 3, 4, 1),
+    #     (3, 4, 1, 2),
+    #     (4, 1, 2, 3),
+    #
+    #     (3, 2, 1, 4),
+    #     (2, 1, 4, 3),
+    #     (1, 4, 3, 2),
+    # ]
+    # 这些均为单个环的不同走法
+    rotations = []
+    for seq in (cycle, list(reversed(cycle))):
+        for i in range(n):
+            rotated = seq[i:] + seq[:i]
+
+            rotations.append(
+                tuple(rotated)
+            )
+
+    # 取字典序最小的那个作为标识
+    return min(rotations)
+
+
+def get_ring_lengths(obj, rings):
+    """计算每个顶点环的边长总和，返回 {ring: length}"""
+    mesh = obj.data
+
+    # 边 -> 边长
+    edge_lengths = {}
+    for edge in mesh.edges:
+        v0, v1 = edge.vertices
+        length = (mesh.vertices[v0].co - mesh.vertices[v1].co).length
+
+        key = get_edge_key(v0, v1)
+        edge_lengths[key] = length
+
+    # 环 -> 环长
+    ring_lengths = {}
+    for ring in rings:
+        total_length = 0.0
+
+        for i in range(len(ring)):
+            v0 = ring[i]
+            v1 = ring[(i + 1) % len(ring)]
+            total_length += edge_lengths.get(get_edge_key(v0, v1), 0.0)
+
+        ring_lengths[tuple(ring)] = total_length
+
+    return ring_lengths
 
 
 def get_rings(obj, z_target, tol=1e-6):
@@ -624,17 +764,64 @@ def get_rings(obj, z_target, tol=1e-6):
     return upper_rings, idx_ring_map, vertex_co_ring_map
 
 
-def get_under_ring_verts(obj, z_target, tol=1e-6):
-    """
-    返回 z ≈ z_target 处平均 y 值最大（最靠后）的顶点圈的索引集合
-    """
-    candidates = {v.index: v for v in obj.data.vertices if abs(v.co.z - z_target) < tol}
+def get_upper_ring(obj, z_target, tol=1e-6):
+    """返回 z ≈ z_target 处边长总和最大的顶点圈"""
     rings = get_rings_at_z(obj, z_target, tol)
     if not rings:
         return set()
-    best_group = max(rings, key=lambda p: sum(candidates[i].co.y for i in p[0]) / len(p[0]))[0]
-    return set(best_group)
 
+    ring_lengths = get_ring_lengths(obj, rings)
+
+    max_ring = max(ring_lengths, key=ring_lengths.get)
+
+    return set(max_ring)
+
+
+def get_under_ring(obj, z_target, b_names, tol=1e-6):
+    """返回 z ≈ z_target 处，平均受胸部影响最小的环"""
+
+    rings = get_rings_at_z(obj, z_target, tol)
+
+    if not rings:
+        return set()
+
+    # 寻找受胸部影响最小的环
+    min_ring = min(
+        rings,
+        key=lambda ring: get_ring_bone_influence(obj, ring, b_names)
+    )
+
+    return set(min_ring)
+
+def get_ring_bone_influence(obj, ring, b_names):
+    """计算一个环平均胸部骨骼影响权重"""
+
+    mesh = obj.data
+
+    # 顶点组名称 -> index
+    b_group_indices = {
+        obj.vertex_groups[name].index
+        for name in b_names
+        if name in obj.vertex_groups
+    }
+
+    if not b_group_indices:
+        return 0.0
+
+    total_weight = 0.0
+
+    for vid in ring:
+        vert = mesh.vertices[vid]
+
+        weight = sum(
+            g.weight
+            for g in vert.groups
+            if g.group in b_group_indices
+        )
+
+        total_weight += weight
+
+    return total_weight / len(ring)
 
 def deselect_verts(obj):
     for v in obj.data.vertices:
@@ -914,6 +1101,7 @@ class AnalysisOperator(bpy.types.Operator):
             return
         source_objs = data["source_objs"]
         obj_vgs_map = data["obj_vgs_map"]
+        b_names = data["b_names"]
 
         # 预处理
         obj_visibility_map = preprocess(active_object, source_objs)
@@ -930,7 +1118,7 @@ class AnalysisOperator(bpy.types.Operator):
         # 分析方式为素体时，需进一步处理分析
         if analysis_type != "DEFAULT":
             # 通过上下胸围的方式，进一步处理分析
-            results = further_process_for_base_body(source_objs, results)
+            results = further_process_for_base_body(source_objs, b_names, results)
             if all(r.status != AnalysisStatus.OK for r in results):
                 clean_collection([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
                 postprocess(active_object, obj_visibility_map)
@@ -1177,11 +1365,13 @@ def validate_analysis_param(active_object, extra_bones):
         return "源模型中未找到胸部骨骼！", None
 
     # 左右骨骼拆分
+    b_names = []
     b_names_l = []
     b_names_r = []
 
     for _, bones in breast_bones_map.items():
         for bone in bones:
+            b_names.append(bone.name)
             if bone.tail_local.x > 0:
                 b_names_l.append(bone.name)
             else:
@@ -1200,6 +1390,7 @@ def validate_analysis_param(active_object, extra_bones):
         "source_armatures": source_armatures,
         "source_objs": source_objs,
         "breast_bones_map": breast_bones_map,
+        "b_names": b_names,
         "b_names_l": b_names_l,
         "b_names_r": b_names_r,
         "obj_vgs_map": obj_vgs_map,
@@ -2321,7 +2512,8 @@ def fix_self_intersection(bm, chain, i, j, cache):
     return dirty
 
 
-def process_bust_line(obj, ring_verts):
+def process_bust_line(obj, ring):
+    """消除环的自交及凹陷点"""
     max_iter = 1000
     mesh = obj.data
 
@@ -2330,7 +2522,7 @@ def process_bust_line(obj, ring_verts):
     bm.verts.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
 
-    verts = [bm.verts[i] for i in ring_verts if bm.verts[i].link_edges]  # 从传入的索引集合取顶点
+    verts = [bm.verts[i] for i in ring if bm.verts[i].link_edges]  # 从传入的索引集合取顶点
     verts = sort_verts(verts)
     for iteration in range(max_iter):
         if len(verts) < 3:
