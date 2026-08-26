@@ -784,9 +784,29 @@ def get_under_ring(obj, z_target, b_names, tol=1e-6):
     if not rings:
         return set()
 
-    # 寻找受胸部影响最小的环
+    # 按长度排序，避免结果随机
+    ring_lengths = get_ring_lengths(obj, rings)
+    sorted_rings = sorted(ring_lengths, key=ring_lengths.get, reverse=True)
+
+    # 只有一个环
+    if len(sorted_rings) == 1:
+        return set(sorted_rings[0])
+
+    max_ring = sorted_rings[0]
+    max_length = ring_lengths[max_ring]
+
+    second_length = ring_lengths[sorted_rings[1]]
+
+    # 最大环明显大于其它环，直接使用
+    if max_length >= second_length * 2:
+        return set(max_ring)
+
+    # 保留长度接近最大环的候选
+    candidate_rings = [ring for ring in sorted_rings if ring_lengths[ring] * 2 >= max_length]
+
+    # 寻找平均受胸部影响最小的环
     min_ring = min(
-        rings,
+        candidate_rings,
         key=lambda ring: get_ring_bone_influence(obj, ring, b_names)
     )
 
