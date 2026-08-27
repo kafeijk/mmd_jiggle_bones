@@ -1157,7 +1157,11 @@ def expand_accessory_bone_names(armature, accessory_breast_rel_map):
 def recursive_search(props):
     """寻找指定路径下各个子目录中，时间最新且未进行处理的那个模型"""
     batch = props.batch
-    directory = batch.directory
+
+    # 获取目录，并转换与规范化，确保 //..\ 等路径格式可以正常解析
+    directory = bpy.path.abspath(batch.directory)
+    directory = os.path.normpath(directory)
+
     search_strategy = batch.search_strategy
     threshold = batch.threshold
     suffix = batch.suffix
