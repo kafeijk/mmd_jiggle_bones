@@ -11,7 +11,7 @@ MAX_RETRIES = 5
 # 临时集合名称
 TMP_COLLECTION_NAME = "KAFEI临时集合"
 # 分析临时集合名称
-TMP_ANALYSIS_COLLECTION_NAME = "KAFEI分析临时集合"
+TMP_ANALYSIS_COLLECTION_NAME = "尺码分析临时集合"
 # 导入pmx生成的txt文件pattern
 TXT_INFO_PATTERN = re.compile(r'(.*)(_e(\.\d{3})?)$')
 
