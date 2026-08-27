@@ -48,6 +48,9 @@ class SetRgbaOperator(bpy.types.Operator):
         scene = context.scene
         props = scene.mmd_jiggle_tools_set_rgba
 
+        self.active_object = context.active_object
+        self.selected_objects = bpy.context.selected_objects
+
         if not self.check_props(props):
             return {'CANCELLED'}
 
@@ -63,18 +66,8 @@ class SetRgbaOperator(bpy.types.Operator):
         # 确保Blender有足够时间更新进度条所在界面（由于进度条面板首次显示时会新增UI区域，需要等待区域完全展开）
         self.flush_count = 0
 
-        filepath = self.file_list[self.file_index]
-        file_name = os.path.basename(filepath)
-
         # 初始化进度条，显示内容为第一个模型
-        props.progress_current = self.file_index + 1
-        props.progress_total = len(self.file_list)
-        props.progress = props.progress_current / props.progress_total
-        blender_version = bpy.app.version
-        if blender_version >= (4, 0, 0):
-            props.progress_message = f"正在处理：{file_name}"
-        else:
-            props.progress_message = f"{props.progress_current}/{props.progress_total} 正在处理：{file_name}"
+        self.update_progress(props)
         props.is_processing = True
 
         self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
@@ -95,52 +88,31 @@ class SetRgbaOperator(bpy.types.Operator):
         scene = context.scene
         props = scene.mmd_jiggle_tools_set_rgba
 
-        if not self.processing_file:
-            # 所有文件处理完成
-            if self.file_index >= len(self.file_list):
-                context.window_manager.event_timer_remove(self.timer)
+        if self.file_index >= len(self.file_list):
+            context.window_manager.event_timer_remove(self.timer)
 
-                props.progress = 1.0
-                props.progress_current = len(self.file_list)
-                props.progress_message = "处理完成"
-                props.is_processing = False
+            self.update_progress(props, all_done=True)
+            props.is_processing = False
 
-                total_time = time.time() - self.start_time
+            total_time = time.time() - self.start_time
 
-                if self.name_msg_map:
-                    combined_msg = "\n".join(
-                        f"{name} - {msg}"
-                        for name, msg in self.name_msg_map.items()
-                    )
+            if self.name_msg_map:
+                combined_msg = "\n".join(
+                    f"{name} - {msg}"
+                    for name, msg in self.name_msg_map.items()
+                )
 
-                    msg = (f"{len(self.file_list) - len(self.name_msg_map)}/{len(self.file_list)} 个文件已处理完成"
-                           f"（总耗时 {total_time:.2f}s）。点击查看详细报告 ↑↑↑")
+                msg = (f"{len(self.file_list) - len(self.name_msg_map)}/{len(self.file_list)} 个文件已处理完成"
+                       f"（总耗时 {total_time:.2f}s）。点击查看详细报告 ↑↑↑")
 
-                    self.report({'WARNING'}, combined_msg)
-                    self.report({'WARNING'}, msg)
+                self.report({'WARNING'}, combined_msg)
+                self.report({'WARNING'}, msg)
 
-                else:
-                    abs_path = bpy.path.abspath(props.batch.directory).rstrip("\\/")
-                    msg = f"目录“{abs_path}”处理完成（总耗时 {total_time:.2f}s）"
-                    self.report({'INFO'}, msg)
-                return {'FINISHED'}
-
-            # 当前文件
-            filepath = self.file_list[self.file_index]
-            file_name = os.path.basename(filepath)
-
-            # 更新进度
-            props.progress_current = self.file_index + 1
-            props.progress = props.progress_current / len(self.file_list)
-            blender_version = bpy.app.version
-            if blender_version >= (4, 0, 0):
-                props.progress_message = f"正在处理：{file_name}"
             else:
-                props.progress_message = f"{props.progress_current}/{props.progress_total} 正在处理：{file_name}"
-
-            # 开启处理flag
-            self.processing_file = True
-            return {'RUNNING_MODAL'}
+                abs_path = bpy.path.abspath(props.batch.directory).rstrip("\\/")
+                msg = f"目录“{abs_path}”处理完成（总耗时 {total_time:.2f}s）"
+                self.report({'INFO'}, msg)
+            return {'FINISHED'}
 
         # 主流程
         file_start = time.time()
@@ -163,9 +135,28 @@ class SetRgbaOperator(bpy.types.Operator):
             f'总耗时 {elapsed_total:.2f}s）'
         )
 
-        # 关闭处理flag
-        self.processing_file = False
+        # 恢复选中状态
+        restore_selection(self.selected_objects, self.active_object)
+        # 更新进度
+        self.update_progress(props)
         return {'RUNNING_MODAL'}
+
+    def update_progress(self, props, all_done=False):
+        if self.file_index < len(self.file_list):
+            filepath = self.file_list[self.file_index]
+            file_name = os.path.basename(filepath)
+
+            props.progress_current = self.file_index + 1
+            props.progress_total = len(self.file_list)
+            props.progress = props.progress_current / props.progress_total
+            blender_version = bpy.app.version
+            if blender_version >= (4, 0, 0):
+                props.progress_message = f"正在处理：{file_name}"
+            else:
+                props.progress_message = f"{props.progress_current}/{props.progress_total} 正在处理：{file_name}"
+
+        if props.progress == 1.0 and all_done:
+            props.progress_message = "处理完成"
 
     def check_props(self, props):
         if not is_mmd_tools_enabled():
