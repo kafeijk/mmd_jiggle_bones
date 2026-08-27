@@ -1257,7 +1257,7 @@ class AnalysisOperator(bpy.types.Operator):
         if blender_version >= (4, 0, 0):
             pass
         else:
-            props.progress_message = f"进度 {props.progress}"
+            props.progress_message = f"进度 {props.progress:.2%}"
 
 
 def build_all_failed_msg(results):
