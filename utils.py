@@ -368,6 +368,9 @@ def get_collection(collection_name):
         collection = bpy.data.collections[collection_name]
     else:
         collection = bpy.data.collections.new(collection_name)
+
+    # 新建和原有集合都可能未被link
+    if collection.name not in bpy.context.scene.collection.children:
         bpy.context.scene.collection.children.link(collection)
 
     layer_collection = find_layer_collection_by_name(bpy.context.view_layer.layer_collection, collection_name)
@@ -610,3 +613,19 @@ def clean_collection(collections):
         bpy.data.collections.remove(collection)
     # 清理未使用数据
     bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+
+
+def restore_selection(selected_objects, active_object):
+    """ 恢复选中状态"""
+    deselect_all_objects()
+    for obj in selected_objects:
+        try:  # 防止 StructRNA of type Object has been removed
+            select_and_activate(obj)
+        except:
+            pass
+    if active_object:
+        try:  # 防止 StructRNA of type Object has been removed
+            # 可能会出现激活但没选中的情况
+            bpy.context.view_layer.objects.active = active_object
+        except:
+            pass

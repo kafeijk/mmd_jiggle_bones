@@ -135,6 +135,14 @@ class AnalysisPanel(bpy.types.Panel):
         col.prop(props, "remove_tmp")
         col.operator(AnalysisOperator.bl_idname, text=AnalysisOperator.bl_label)
 
+        if props.is_processing:
+            # 进度条，Blender 4.0及以上生效
+            blender_version = bpy.app.version
+            if blender_version >= (4, 0, 0):
+                layout.progress(factor=props.progress, type='BAR', text=f"{props.progress:.2%}")
+            else:
+                layout.label(text=props.progress_message)
+
 
 class AboutPanel(bpy.types.Panel):
     bl_idname = "RGBA_PT_about"

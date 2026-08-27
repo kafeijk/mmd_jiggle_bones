@@ -68,14 +68,12 @@ class BatchAnalysisResult:
     results: list | None = None
 
 
-def postprocess(active_object, obj_visibility_map):
+def restore_object_state(obj_visibility_map, selected_objects, active_object):
+    """恢复对象可见性，并恢复活动对象"""
     for obj, visibility in obj_visibility_map.items():
         set_visibility(obj, visibility)
 
-    deselect_all_objects()
-    select_and_activate(active_object)
-    # 清理未使用数据，防止对执行流程造成影响，防止工程体积过大
-    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+    restore_selection(selected_objects, active_object)
 
 
 def get_co_key(co):
@@ -306,205 +304,201 @@ def remove_z_verts_except_ring(obj, upper_ring, loc_z, tol=1e-6):
     bm.free()
 
 
-def further_process_for_base_body(source_objs, b_names, results):
-    results.sort(key=lambda r: r.threshold, reverse=True)
+def further_process_for_base_body(source_objs, b_names, result, index):
+    if result.status != AnalysisStatus.OK:
+        return
 
-    for index, result in enumerate(results):
-        if result.status != AnalysisStatus.OK:
-            continue
+    if result.opposite_normals:
+        status = AnalysisStatus.BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS
+        result.status = status
+        result.msg = status.msg
+        return
 
-        if result.opposite_normals:
-            status = AnalysisStatus.BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS
-            result.status = status
-            result.msg = status.msg
-            continue
+    # 重置cup参数
+    result.cup = None
 
-        # 重置cup参数
-        result.cup = None
+    # todo 通用和素体方式共用参数互相影响 应修复
+    # 通常情况下，z_max为乳首位置，z_min为乳根位置
+    # 胸部较大而自然下垂时，乳首位置可能会小于乳根位置，因此不会continue，而是取实际的最大最小值，用于后续切割（例如Hanako_BaseBody）
+    z_max = max(result.nipple_co.z, result.under_co.z)
+    z_min = min(result.nipple_co.z, result.under_co.z)
 
-        # todo 通用和素体方式共用参数互相影响 应修复
-        # 通常情况下，z_max为乳首位置，z_min为乳根位置
-        # 胸部较大而自然下垂时，乳首位置可能会小于乳根位置，因此不会continue，而是取实际的最大最小值，用于后续切割（例如Hanako_BaseBody）
-        z_max = max(result.nipple_co.z, result.under_co.z)
-        z_min = min(result.nipple_co.z, result.under_co.z)
+    # 判断乳首与乳根是否重合（例如：莱娅_热力运动），此类情况通常出现在平胸角色
+    if (result.nipple_co - result.under_co).length < 1e-6:
+        result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP
+        result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP.msg
+        return
 
-        # 判断乳首与乳根是否重合（例如：莱娅_热力运动），此类情况通常出现在平胸角色
-        if (result.nipple_co - result.under_co).length < 1e-6:
-            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP
-            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP.msg
-            continue
+    # 创建临时对象
+    tmp_obj_name = f"{index}_{BASEBODY_TMP_OBJ_NAME}_{result.threshold}_None"
+    tmp_col, tmp_obj, temp_mesh = create_tmp_obj(None, delete_unwanted_flag=False, source_objs=source_objs,
+                                                 tmp_obj_name=tmp_obj_name)
+    # 切两刀，获取乳首与乳根中间的部分
+    crop_mesh_by_z(tmp_obj, z_min, z_max)
+    # 合并顶点，避免因切割产生的相邻顶点对后续流程造成干扰
+    bm = bmesh.new()
+    bm.from_mesh(temp_mesh)
+    # Blender 4.5的bisect_plane函数在1e-6尺度上存在误差，例如少女前线2的秋桦_仁心仁术 remove_doubles方法在1e-5上存在误差，例如Alya_BaseBody
+    # 优先素体的正确率
+    bmesh.ops.remove_doubles(bm, verts=sort_verts(bm.verts), dist=1e-6)
+    bm.to_mesh(temp_mesh)
+    bm.free()
 
-        # 创建临时对象
-        tmp_obj_name = f"{index}_{BASEBODY_TMP_OBJ_NAME}_{result.threshold}_None"
-        tmp_col, tmp_obj, temp_mesh = create_tmp_obj(None, delete_unwanted_flag=False, source_objs=source_objs,
-                                                     tmp_obj_name=tmp_obj_name)
-        # 切两刀，获取乳首与乳根中间的部分
-        crop_mesh_by_z(tmp_obj, z_min, z_max)
-        # 合并顶点，避免因切割产生的相邻顶点对后续流程造成干扰
-        bm = bmesh.new()
-        bm.from_mesh(temp_mesh)
-        # Blender 4.5的bisect_plane函数在1e-6尺度上存在误差，例如少女前线2的秋桦_仁心仁术 remove_doubles方法在1e-5上存在误差，例如Alya_BaseBody
-        # 优先素体的正确率
-        bmesh.ops.remove_doubles(bm, verts=sort_verts(bm.verts), dist=1e-6)
-        bm.to_mesh(temp_mesh)
-        bm.free()
+    # 获取乳首与乳根的位置
+    nipple_z = result.nipple_co.z
+    under_z = result.under_co.z
 
-        # 获取乳首与乳根的位置
-        nipple_z = result.nipple_co.z
-        under_z = result.under_co.z
+    # 保留 under_co、nipple_co 所在孤岛，删除其余孤岛
+    # 此处因为是位置校验而非顶点校验，所以islands可能会多选，需要后续进一步处理
+    keep_islands_between_z(tmp_obj, result.under_co, result.nipple_co)
 
-        # 保留 under_co、nipple_co 所在孤岛，删除其余孤岛
-        # 此处因为是位置校验而非顶点校验，所以islands可能会多选，需要后续进一步处理
-        keep_islands_between_z(tmp_obj, result.under_co, result.nipple_co)
+    # 避免极端情况下，环数过多或缺失
+    upper_rings, under_rings, status = get_and_check_rings(tmp_obj, nipple_z, under_z, max_ring_count=MAX_RING_COUNT)
+    if status:
+        result.status = status
+        result.msg = status.msg
+        return
 
-        # 避免极端情况下，环数过多或缺失
-        upper_rings, under_rings, status = get_and_check_rings(tmp_obj, nipple_z, under_z, max_ring_count=MAX_RING_COUNT)
+    # 获取upper_ring
+    # 如果upper_ring存在多个环，需通过合并的方式减少环
+    if len(upper_rings) > 1:
+        status, upper_ring = process_muti_rings(tmp_obj, nipple_z, result.nipple_co, upper_rings)
+        # 胸部结构复杂直接返回
         if status:
             result.status = status
             result.msg = status.msg
-            continue
+            return
+    else:
+        upper_ring = upper_rings[0] if upper_rings else []
+    # 首次获取 upper_ring 后，移除其它位于 nipple_z 的顶点
+    remove_z_verts_except_ring(tmp_obj, upper_ring, nipple_z)
 
-        # 获取upper_ring
-        # 如果upper_ring存在多个环，需通过合并的方式减少环
-        if len(upper_rings) > 1:
-            status, upper_ring = process_muti_rings(tmp_obj, nipple_z, result.nipple_co, upper_rings)
-            # 胸部结构复杂直接返回
-            if status:
-                result.status = status
-                result.msg = status.msg
-                continue
-        else:
-            upper_ring = upper_rings[0] if upper_rings else []
-        # 首次获取 upper_ring 后，移除其它位于 nipple_z 的顶点
-        remove_z_verts_except_ring(tmp_obj, upper_ring, nipple_z)
+    # 获取under_rings
+    under_ring = get_under_ring(tmp_obj, under_z, b_names)
+    # 首次获取 under_rings 后，移除其它位于 under_z 的顶点
+    remove_z_verts_except_ring(tmp_obj, under_ring, under_z)
 
-        # 获取under_rings
-        under_ring = get_under_ring(tmp_obj, under_z, b_names)
-        # 首次获取 under_rings 后，移除其它位于 under_z 的顶点
-        remove_z_verts_except_ring(tmp_obj, under_ring, under_z)
+    # 消除环的自交及凹陷点（例如 Hanako_BaseBody）
+    upper_ring = get_upper_ring(tmp_obj, nipple_z)
+    process_bust_line(tmp_obj, upper_ring)
+    under_ring = get_under_ring(tmp_obj, under_z, b_names)
+    process_bust_line(tmp_obj, under_ring)
 
-        # 消除环的自交及凹陷点（例如 Hanako_BaseBody）
-        upper_ring = get_upper_ring(tmp_obj, nipple_z)
-        process_bust_line(tmp_obj, upper_ring)
-        under_ring = get_under_ring(tmp_obj, under_z, b_names)
-        process_bust_line(tmp_obj, under_ring)
+    # 再次获取上圈和下圈
+    upper_ring = get_upper_ring(tmp_obj, nipple_z)
+    under_ring = get_under_ring(tmp_obj, under_z, b_names)
 
-        # 再次获取上圈和下圈
-        upper_ring = get_upper_ring(tmp_obj, nipple_z)
-        under_ring = get_under_ring(tmp_obj, under_z, b_names)
+    # 删除圈外顶点
+    bm = bmesh.new()
+    bm.from_mesh(tmp_obj.data)
+    bm.verts.ensure_lookup_table()
+    keep = upper_ring | under_ring
+    verts_to_delete = [v for v in bm.verts if v.index not in keep]
+    bmesh.ops.delete(bm, geom=verts_to_delete, context='VERTS')
 
-        # 删除圈外顶点
-        bm = bmesh.new()
-        bm.from_mesh(tmp_obj.data)
-        bm.verts.ensure_lookup_table()
-        keep = upper_ring | under_ring
-        verts_to_delete = [v for v in bm.verts if v.index not in keep]
-        bmesh.ops.delete(bm, geom=verts_to_delete, context='VERTS')
-
-        # 删除度数 <= 1 的顶点
-        bm.verts.ensure_lookup_table()
-        bm.edges.ensure_lookup_table()
+    # 删除度数 <= 1 的顶点
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    loose_verts = [v for v in bm.verts if len(v.link_edges) <= 1]
+    while loose_verts:
+        bmesh.ops.delete(bm, geom=loose_verts, context='VERTS')
         loose_verts = [v for v in bm.verts if len(v.link_edges) <= 1]
-        while loose_verts:
-            bmesh.ops.delete(bm, geom=loose_verts, context='VERTS')
-            loose_verts = [v for v in bm.verts if len(v.link_edges) <= 1]
 
-        bm.to_mesh(tmp_obj.data)
-        tmp_obj.data.update()
-        bm.free()
+    bm.to_mesh(tmp_obj.data)
+    tmp_obj.data.update()
+    bm.free()
 
-        # 再次获取上圈和下圈
-        upper_ring = get_upper_ring(tmp_obj, nipple_z)
-        under_ring = get_under_ring(tmp_obj, under_z, b_names)
+    # 再次获取上圈和下圈
+    upper_ring = get_upper_ring(tmp_obj, nipple_z)
+    under_ring = get_under_ring(tmp_obj, under_z, b_names)
 
-        # 删除 upper_ring_verts 与 under_ring_verts 之间的边
-        edges_to_delete = []
-        bm = bmesh.new()
-        bm.from_mesh(tmp_obj.data)
-        bm.verts.ensure_lookup_table()
-        for edge in bm.edges:
-            v1, v2 = edge.verts
-            # 一个顶点属于上圈，另一个顶点属于下圈
-            if (
-                    (v1.index in upper_ring and v2.index in under_ring)
-                    or
-                    (v2.index in upper_ring and v1.index in under_ring)
-            ):
-                edges_to_delete.append(edge)
-        # 删除边
-        if edges_to_delete:
-            bmesh.ops.delete(bm, geom=edges_to_delete, context='EDGES')
+    # 删除 upper_ring_verts 与 under_ring_verts 之间的边
+    edges_to_delete = []
+    bm = bmesh.new()
+    bm.from_mesh(tmp_obj.data)
+    bm.verts.ensure_lookup_table()
+    for edge in bm.edges:
+        v1, v2 = edge.verts
+        # 一个顶点属于上圈，另一个顶点属于下圈
+        if (
+                (v1.index in upper_ring and v2.index in under_ring)
+                or
+                (v2.index in upper_ring and v1.index in under_ring)
+        ):
+            edges_to_delete.append(edge)
+    # 删除边
+    if edges_to_delete:
+        bmesh.ops.delete(bm, geom=edges_to_delete, context='EDGES')
 
-        bm.to_mesh(tmp_obj.data)
-        tmp_obj.data.update()
-        bm.free()
+    bm.to_mesh(tmp_obj.data)
+    tmp_obj.data.update()
+    bm.free()
 
-        # 如果任一上下胸围顶点数小于2，则无法构成边，直接continue
-        if len(upper_ring) < 2:
-            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST
-            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST.msg
-            continue
-        if len(under_ring) < 2:
-            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST
-            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST.msg
-            continue
+    # 如果任一上下胸围顶点数小于2，则无法构成边，直接continue
+    if len(upper_ring) < 2:
+        result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST
+        result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST.msg
+        return
+    if len(under_ring) < 2:
+        result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST
+        result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST.msg
+        return
 
-        # 计算上胸围
-        upper_ring = get_upper_ring(tmp_obj, nipple_z)
-        upper_bust = get_ring_edge_length(tmp_obj, upper_ring)
+    # 计算上胸围
+    upper_ring = get_upper_ring(tmp_obj, nipple_z)
+    upper_bust = get_ring_edge_length(tmp_obj, upper_ring)
 
-        # 计算下胸围
-        under_ring = get_under_ring(tmp_obj, under_z, b_names)
-        under_bust = get_ring_edge_length(tmp_obj, under_ring)
+    # 计算下胸围
+    under_ring = get_under_ring(tmp_obj, under_z, b_names)
+    under_bust = get_ring_edge_length(tmp_obj, under_ring)
 
-        # 再次校验，增加健壮性（例如：心夏_鸭子摇滚）
-        if not upper_bust:
-            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST
-            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST.msg
-            continue
+    # 再次校验，增加健壮性（例如：心夏_鸭子摇滚）
+    if not upper_bust:
+        result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST
+        result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST.msg
+        return
 
-        if not under_bust:
-            result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST
-            result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST.msg
-            continue
+    if not under_bust:
+        result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST
+        result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST.msg
+        return
 
-        # 取消顶点选中
-        deselect_verts(tmp_obj)
+    # 取消顶点选中
+    deselect_verts(tmp_obj)
 
-        # 围差
-        bust_diff = upper_bust - under_bust
-        bust_diff_cm = bust_diff * 100
+    # 围差
+    bust_diff = upper_bust - under_bust
+    bust_diff_cm = bust_diff * 100
 
-        if bust_diff_cm < 0:
-            result.status = AnalysisStatus.BUST_DIFF_NEGATIVE
-            result.msg = f"{AnalysisStatus.BUST_DIFF_NEGATIVE.msg}上胸围：{round(upper_bust * 100, 2)} cm 下胸围：{round(under_bust * 100, 2)} cm 胸围差：{round(bust_diff * 100, 2)} cm"
-            continue
+    if bust_diff_cm < 0:
+        result.status = AnalysisStatus.BUST_DIFF_NEGATIVE
+        result.msg = f"{AnalysisStatus.BUST_DIFF_NEGATIVE.msg}上胸围：{round(upper_bust * 100, 2)} cm 下胸围：{round(under_bust * 100, 2)} cm 胸围差：{round(bust_diff * 100, 2)} cm"
+        return
 
-        # 计算罩杯
-        cup = None
-        if bust_diff_cm:
-            for limit, c in STANDARD_CUP_LIST:
-                if bust_diff_cm < limit:
-                    cup = c
-                    break
+    # 计算罩杯
+    cup = None
+    if bust_diff_cm:
+        for limit, c in STANDARD_CUP_LIST:
+            if bust_diff_cm < limit:
+                cup = c
+                break
 
-        # 解除临时对象与源对象的关联
-        tmp_obj.name = f"{index}_{BASEBODY_TMP_OBJ_NAME}_{result.threshold}_{cup if cup else 'None'}"
+    # 解除临时对象与源对象的关联
+    tmp_obj.name = f"{index}_{BASEBODY_TMP_OBJ_NAME}_{result.threshold}_{cup if cup else 'None'}"
 
-        # 保存结果
-        result.cup = cup
-        result.upper_bust = upper_bust
-        result.under_bust = under_bust
-        result.bust_diff = bust_diff
-        result.cup_index = get_standard_cup_index(cup)
-        result.tmp_obj_for_base_body = tmp_obj
+    # 保存结果
+    result.cup = cup
+    result.upper_bust = upper_bust
+    result.under_bust = under_bust
+    result.bust_diff = bust_diff
+    result.cup_index = get_standard_cup_index(cup)
+    result.tmp_obj_for_base_body = tmp_obj
 
-        if cup == STANDARD_CUP_LIST[-1][1]:
-            result.status = AnalysisStatus.BUST_DIFF_TOO_LARGE
-            result.msg = f"{AnalysisStatus.BUST_DIFF_TOO_LARGE.msg}上胸围：{round(upper_bust * 100, 2)} cm 下胸围：{round(under_bust * 100, 2)} cm 胸围差：{round(bust_diff * 100, 2)} cm"
-            continue
+    if cup == STANDARD_CUP_LIST[-1][1]:
+        result.status = AnalysisStatus.BUST_DIFF_TOO_LARGE
+        result.msg = f"{AnalysisStatus.BUST_DIFF_TOO_LARGE.msg}上胸围：{round(upper_bust * 100, 2)} cm 下胸围：{round(under_bust * 100, 2)} cm 胸围差：{round(bust_diff * 100, 2)} cm"
+        return
 
-    return results
 
 
 def get_and_check_rings(tmp_obj, nipple_z, under_z, max_ring_count=MAX_RING_COUNT):
@@ -1102,15 +1096,6 @@ class AnalysisOperator(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}  # 启用撤销功能
 
     def execute(self, context):
-        self.main(context)
-        return {'FINISHED'}  # 让Blender知道操作已成功完成
-
-    def main(self, context):
-        scene = context.scene
-        props = scene.mmd_jiggle_tools_analysis
-        self.analyze(context, props)
-
-    def analyze(self, context, props):
         """
         分析胸部尺寸。
 
@@ -1125,68 +1110,154 @@ class AnalysisOperator(bpy.types.Operator):
         但3D模型与真实人体结构仍存在一定差异，例如：上胸围测量时，背部曲线所占的长度可能（远）大于下胸围测量时的背部长度
         """
 
+        scene = context.scene
+        props = scene.mmd_jiggle_tools_analysis
+        self.start_time = time.time()
+
         # 清理上一次执行时保留的临时对象，同时清理未使用数据，防止对执行流程造成影响，防止工程体积过大
         clean_collection([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
-        start_time = time.time()
 
-        active_object = context.active_object
+        # 参数校验
+        self.active_object = context.active_object
+        self.selected_objects = bpy.context.selected_objects
+        err_msg, self.data = validate_analysis_param(self.active_object, props.extra_bones_str)
+        if err_msg:
+            self.report({'ERROR'}, err_msg)
+            return {'FINISHED'}
+
+        # 预处理
+        self.obj_visibility_map = preprocess(self.active_object, self.data["source_objs"])
+
+        self.thresholds = [0.25, 0.2, 0.15, 0.1, 0.05, 0]
+        self.analysis_index = 0
+        self.further_index = 0
+        self.results = []
+        self.all_done = False
+        # 确保Blender有足够时间更新进度条所在界面（由于进度条面板首次显示时会新增UI区域，需要等待区域完全展开）
+        self.flush_count = 0
+
+        self.update_progress(props)
+        props.is_processing = True
+        # 防止页面变化
+        restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+
+        self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+
+    def modal(self, context, event):
+        # 忽略用户的操作，仅处理TIMER事件，
+        if event.type != 'TIMER':
+            return {'RUNNING_MODAL'}
+
+        # 确保Blender有足够时间更新进度条所在界面
+        if self.flush_count < 10:
+            self.flush_count += 1
+            return {'RUNNING_MODAL'}
+
+        scene = context.scene
+        props = scene.mmd_jiggle_tools_analysis
         analysis_type = props.type
         remove_tmp = props.remove_tmp
 
-        # 参数校验
-        err_msg, data = validate_analysis_param(active_object, props.extra_bones_str)
-        if err_msg:
-            self.report({'ERROR'}, err_msg)
-            return
-        source_objs = data["source_objs"]
-        obj_vgs_map = data["obj_vgs_map"]
-        b_names = data["b_names"]
+        source_objs = self.data["source_objs"]
+        obj_vgs_map = self.data["obj_vgs_map"]
+        b_names = self.data["b_names"]
 
-        # 预处理
-        obj_visibility_map = preprocess(active_object, source_objs)
+        if not self.all_done:
+            # 每次执行前，显示临时集合供后续操作
+            tmp_col = get_collection(TMP_ANALYSIS_COLLECTION_NAME)
+            if tmp_col.name not in scene.collection.children:
+                scene.collection.children.link(tmp_col)
 
-        # 根据权重阈值的不同，多次分析胸部尺寸。
-        results = batch_do_analysis(obj_vgs_map, analysis_type)
-        if all(r.status != AnalysisStatus.OK for r in results):
-            clean_collection([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
-            postprocess(active_object, obj_visibility_map)
-            msg = build_all_failed_msg(results)
-            self.report({'ERROR'}, msg)
-            return
+            if analysis_type == "DEFAULT":
+                if self.analysis_index < len(self.thresholds):
+                    threshold = self.thresholds[self.analysis_index]
+                    result = do_analysis(obj_vgs_map, threshold, self.analysis_index, analysis_type)
+                    self.results.append(result)
+                    self.analysis_index += 1
+                    self.update_progress(props)
+                else:
+                    self.all_done = True
+            else:
+                if self.analysis_index < len(self.thresholds):
+                    threshold = self.thresholds[self.analysis_index]
+                    result = do_analysis(obj_vgs_map, threshold, self.analysis_index,analysis_type)
+                    self.results.append(result)
+                    self.analysis_index += 1
+                    self.update_progress(props)
+                elif self.further_index < len(self.thresholds):
+                    result = self.results[self.further_index]
+                    further_process_for_base_body(source_objs, b_names, result, self.further_index)
+                    self.further_index += 1
+                    self.update_progress(props)
+                else:
+                    self.all_done = True
 
-        # 分析方式为素体时，需进一步处理分析
-        if analysis_type != "DEFAULT":
-            # 通过上下胸围的方式，进一步处理分析
-            results = further_process_for_base_body(source_objs, b_names, results)
-            if all(r.status != AnalysisStatus.OK for r in results):
-                clean_collection([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
-                postprocess(active_object, obj_visibility_map)
-                msg = build_all_failed_msg(results)
-                self.report({'ERROR'}, msg)
-                return
+            # 每次执行后，隐藏临时集合并恢复对象状态防止页面变化
+            scene.collection.children.unlink(tmp_col)
+            restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+            return {'RUNNING_MODAL'}
+        else:
+            context.window_manager.event_timer_remove(self.timer)
+            props.is_processing = False
 
-        # 从多次执行的结果中，筛选出最合适的那个结果
-        result, cups, cup_inners = filter_results(results)
-        nipple_co = result.nipple_co
-        under_co = result.under_co
-        cup = result.cup
+            # 从多次执行的结果中，筛选出最合适的那个结果
+            results = self.results
+            result, cups, cup_inners = filter_results(results)
+            nipple_co = result.nipple_co
+            under_co = result.under_co
+            cup = result.cup
 
-        # 选中源对象中的对应顶点
-        select_verts(source_objs, [nipple_co, under_co])
+            # 选中源对象中的对应顶点
+            select_verts(source_objs, [nipple_co, under_co])
 
-        # 根据flag删除临时对象
-        remove_tmp_obj(results, remove_tmp, analysis_type)
+            # 根据flag删除临时对象
+            remove_tmp_obj(results, remove_tmp, analysis_type)
 
-        # 设置Joint参数到插件面板
-        set_joint_param(context, nipple_co, under_co, result)
+            # 设置Joint参数到插件面板
+            set_joint_param(context, nipple_co, under_co, result)
 
-        # 后处理
-        postprocess(active_object, obj_visibility_map)
+            # 后处理
+            restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+            # 清理未使用数据，防止对执行流程造成影响，防止工程体积过大
+            bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
 
-        # 构建显示消息
-        total_time = time.time() - start_time
-        msg = build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups, total_time)
-        self.report({'INFO'}, "\n".join(msg))
+            # 构建显示消息
+            total_time = time.time() - self.start_time
+            msg = build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups, total_time)
+            self.report({'INFO'}, "\n".join(msg))
+
+            return {'FINISHED'}
+
+
+    def update_progress(self, props):
+        """更新进度"""
+        count = len(self.thresholds)
+
+        if props.type == "DEFAULT":
+            total = count
+            current = self.analysis_index + 1
+        else:
+            total = count * 2
+            current = self.analysis_index + 1
+
+            if self.analysis_index == count:
+                current = count + self.further_index + 1
+
+        props.progress_current = current
+        props.progress = current / total
+
+        if not self.all_done and props.progress == 1:
+            props.progress = 0.9999
+
+        blender_version = bpy.app.version
+
+        if blender_version >= (4, 0, 0):
+            pass
+        else:
+            props.progress_message = f"进度 {props.progress}"
 
 
 def build_all_failed_msg(results):
@@ -1288,6 +1359,11 @@ def remove_tmp_obj(results, remove_tmp, analysis_type):
                 if r.tmp_obj:
                     bpy.data.objects.remove(r.tmp_obj, do_unlink=True)
             bpy.data.collections.remove(get_collection(TMP_COLLECTION_NAME))
+
+        # 恢复临时集合显示
+        tmp_col = get_collection(TMP_ANALYSIS_COLLECTION_NAME)
+        if tmp_col.name not in bpy.context.scene.collection.children:
+            bpy.context.scene.collection.children.link(tmp_col)
     # 清理未使用数据，防止对执行流程造成影响，防止工程体积过大
     bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
 
@@ -1830,9 +1906,8 @@ def has_overlapping_faces_with_opposite_normals(obj_verts_map):
     return False
 
 
-def do_analysis(obj_vgs_map, threshold, analysis_type):
+def do_analysis(obj_vgs_map, threshold, index, analysis_type):
     """分析胸部尺寸"""
-
     # 网格对象 -> 胸部范围（高于权重阈值的顶点）
     obj_verts_map = {}
     for source_obj, vg_names in obj_vgs_map.items():
@@ -1870,6 +1945,7 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
     # 获取参考顶点所在松散块
     status, boundary, breast_verts, other_island_verts = get_best_island(bm)
     if status in (AnalysisStatus.NO_ISLANDS, AnalysisStatus.NO_BOUNDARY):
+        tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
         return AnalysisResult(status=status, msg=status.msg, threshold=threshold, tmp_obj=tmp_obj)
 
     # 获取胸部宽度
@@ -1883,6 +1959,7 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
     status, nipple, breast_verts = get_breast_nipple(bm, tmp_obj, breast_verts, lower, other_island_verts,
                                                      analysis_type)
     if status == AnalysisStatus.NO_BREAST_VERTS_AFTER_DELETE_INVALID:
+        tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
         return AnalysisResult(status=status, msg=status.msg, threshold=threshold, tmp_obj=tmp_obj)
     nipple_co = nipple.co
 
@@ -1898,6 +1975,7 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
     cup, cup_index = next((c, i) for i, (limit, c) in enumerate(CUP_LIST) if lower_nipple_diff_y < limit)
 
     if cup == CUP_LIST[-1][1]:
+        tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
         return AnalysisResult(status=AnalysisStatus.BUST_DIFF_TOO_LARGE,
                               msg=AnalysisStatus.BUST_DIFF_TOO_LARGE.msg,
                               threshold=threshold, tmp_obj=tmp_obj)
@@ -1914,6 +1992,8 @@ def do_analysis(obj_vgs_map, threshold, analysis_type):
     if inner_co:
         cos.append(inner_co.copy())
     select_verts([tmp_obj], cos)
+
+    tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_{cup}"
 
     return AnalysisResult(
         status=AnalysisStatus.OK,
@@ -2022,7 +2102,7 @@ def batch_do_analysis(obj_vgs_map, analysis_type):
 
     results = []
     for index, threshold in enumerate(thresholds):
-        result = do_analysis(obj_vgs_map, threshold, analysis_type)
+        result = do_analysis(obj_vgs_map, threshold, index, analysis_type)
         if result.tmp_obj:
             result.tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_{result.cup if result.cup else 'None'}"
         results.append(result)
