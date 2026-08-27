@@ -80,7 +80,7 @@ def get_co_key(co):
     return tuple(round(c, 6) for c in co)
 
 
-def remove_doubles_between_rings(tmp_obj, idx_ring_map, upper_rings):
+def remove_doubles_between_rings(tmp_obj, idx_rings_map, upper_rings):
     """
     仅合并不同环上距离过近的顶点，不影响其他顶点。
     """
@@ -108,8 +108,11 @@ def remove_doubles_between_rings(tmp_obj, idx_ring_map, upper_rings):
             if v1.index == v2.index:
                 continue
 
-            # 跳过同一个 ring
-            if idx_ring_map[v1.index] == idx_ring_map[v2.index]:
+            # 跳过同一个环
+            # 若两个顶点中的任意一个属于多个环，则不认为这两个顶点属于同一个环。（例如：崩坏3的琪亚娜_薪炎之律者）
+            r1 = idx_rings_map[v1.index]
+            r2 = idx_rings_map[v2.index]
+            if len(r1) == len(r2) == 1 and r1 == r2:
                 continue
 
             # 距离判断
@@ -170,11 +173,11 @@ def sort_verts(verts):
 
 def process_muti_rings(tmp_obj, loc_z, ref_co, rings):
     # 合并不同环上距离过近的顶点，使不同环相连，供后续处理
-    idx_ring_map = {}
+    idx_rings_map = defaultdict(list)
     for ring_idx, ring in enumerate(rings):
         for v_idx in ring:
-            idx_ring_map[v_idx] = ring_idx
-    remove_doubles_between_rings(tmp_obj, idx_ring_map, rings)
+            idx_rings_map[v_idx].append(ring_idx)
+    remove_doubles_between_rings(tmp_obj, idx_rings_map, rings)
 
     bm = bmesh.new()
     bm.from_mesh(tmp_obj.data)
