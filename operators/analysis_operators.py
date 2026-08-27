@@ -69,7 +69,7 @@ class BatchAnalysisResult:
 
 
 def restore_object_state(obj_visibility_map, selected_objects, active_object):
-    """恢复对象可见性，并恢复活动对象"""
+    """恢复对象的显示状态与选择状态"""
     for obj, visibility in obj_visibility_map.items():
         set_visibility(obj, visibility)
 
@@ -1206,8 +1206,18 @@ class AnalysisOperator(bpy.types.Operator):
             context.window_manager.event_timer_remove(self.timer)
             props.is_processing = False
 
-            # 从多次执行的结果中，筛选出最合适的那个结果
             results = self.results
+
+            # 若results全部异常，则直接拦截。
+            if all(r.status != AnalysisStatus.OK for r in results):
+                remove_tmp_obj(results, remove_tmp, analysis_type)
+                restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+                bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+                msg = build_all_failed_msg(results)
+                self.report({'ERROR'}, msg)
+                return {'FINISHED'}
+
+            # 从多次执行的结果中，筛选出最合适的那个结果
             result, cups, cup_inners = filter_results(results)
             nipple_co = result.nipple_co
             under_co = result.under_co
@@ -1222,7 +1232,7 @@ class AnalysisOperator(bpy.types.Operator):
             # 设置Joint参数到插件面板
             set_joint_param(context, nipple_co, under_co, result)
 
-            # 后处理
+            # 恢复对象的显示状态与选择状态
             restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
             # 清理未使用数据，防止对执行流程造成影响，防止工程体积过大
             bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
