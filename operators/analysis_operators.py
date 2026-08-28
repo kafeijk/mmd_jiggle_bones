@@ -348,9 +348,9 @@ def further_process_for_base_body(source_objs, b_names, result, index):
     bm = bmesh.new()
     bm.from_mesh(temp_mesh)
     upper_verts = [v for v in bm.verts if v.co.z == nipple_z]
+    bmesh.ops.remove_doubles(bm, verts=upper_verts, dist=1e-5)
     under_verts = [v for v in bm.verts if v.co.z == under_z]
-    bmesh.ops.remove_doubles(bm, verts=sort_verts(upper_verts), dist=1e-5)
-    bmesh.ops.remove_doubles(bm, verts=sort_verts(under_verts), dist=1e-5)
+    bmesh.ops.remove_doubles(bm, verts=under_verts, dist=1e-5)
     bm.to_mesh(temp_mesh)
     bm.free()
 
