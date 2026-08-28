@@ -184,7 +184,7 @@ def process_muti_rings(tmp_obj, loc_z, ref_co, rings):
     bm.verts.ensure_lookup_table()
 
     # 获取 z=loc_z 平面上的顶点
-    loc_z_verts = [v for v in bm.verts if abs(v.co.z - loc_z) <= 1e-6]
+    loc_z_verts = [v for v in bm.verts if v.co.z == loc_z]
     loc_z_verts = sort_verts(loc_z_verts)
     # 获取start参考点
     start_verts = []
@@ -215,7 +215,7 @@ def process_muti_rings(tmp_obj, loc_z, ref_co, rings):
             others = set()
             for edge in get_sorted_link_edges(curr):
                 other = edge.other_vert(curr)
-                if abs(other.co.z - loc_z) > 1e-6:
+                if other.co.z != loc_z:
                     continue
                 others.add(other)
 
@@ -237,7 +237,7 @@ def process_muti_rings(tmp_obj, loc_z, ref_co, rings):
             for edge in get_sorted_link_edges(curr):
                 other = edge.other_vert(curr)
                 # 排除不在z=z_max上的顶点
-                if abs(other.co.z - loc_z) > 1e-6:
+                if other.co.z != loc_z:
                     continue
                 # 排除已访问过的顶点
                 if get_co_key(other.co) in curr_visited:
@@ -286,17 +286,18 @@ def process_muti_rings(tmp_obj, loc_z, ref_co, rings):
     return None, verts
 
 
-def remove_z_verts_except_ring(obj, upper_ring, loc_z, tol=1e-6):
+def remove_z_verts_except_ring(obj, upper_ring, loc_z):
     mesh = obj.data
 
     bm = bmesh.new()
     bm.from_mesh(mesh)
+    bm.verts.ensure_lookup_table()
 
     keep_indices = set(upper_ring)
 
     remove_verts = [
         v for v in bm.verts
-        if abs(v.co.z - loc_z) < tol and v.index not in keep_indices
+        if v.co.z == loc_z and v.index not in keep_indices
     ]
 
     if remove_verts:
@@ -338,18 +339,20 @@ def further_process_for_base_body(source_objs, b_names, result, index):
                                                  tmp_obj_name=tmp_obj_name)
     # 切两刀，获取乳首与乳根中间的部分
     crop_mesh_by_z(tmp_obj, z_min, z_max)
-    # 合并顶点，避免因切割产生的相邻顶点对后续流程造成干扰
-    bm = bmesh.new()
-    bm.from_mesh(temp_mesh)
-    # Blender 4.5的bisect_plane函数在1e-6尺度上存在误差，例如少女前线2的秋桦_仁心仁术 remove_doubles方法在1e-5上存在误差，例如Alya_BaseBody
-    # 优先素体的正确率
-    bmesh.ops.remove_doubles(bm, verts=sort_verts(bm.verts), dist=1e-6)
-    bm.to_mesh(temp_mesh)
-    bm.free()
 
     # 获取乳首与乳根的位置
     nipple_z = result.nipple_co.z
     under_z = result.under_co.z
+
+    # 合并切割面的顶点，避免水平方向距离过近的顶点带来干扰
+    bm = bmesh.new()
+    bm.from_mesh(temp_mesh)
+    upper_verts = [v for v in bm.verts if v.co.z == nipple_z]
+    under_verts = [v for v in bm.verts if v.co.z == under_z]
+    bmesh.ops.remove_doubles(bm, verts=sort_verts(upper_verts), dist=1e-5)
+    bmesh.ops.remove_doubles(bm, verts=sort_verts(under_verts), dist=1e-5)
+    bm.to_mesh(temp_mesh)
+    bm.free()
 
     # 保留 under_co、nipple_co 所在孤岛，删除其余孤岛
     # 此处因为是位置校验而非顶点校验，所以islands可能会多选，需要后续进一步处理
@@ -560,9 +563,9 @@ def get_edge_key(v0, v1):
     return tuple(sorted((v0, v1)))
 
 
-def get_rings_at_z(obj, z_target, tol=1e-6, max_ring_count=MAX_RING_COUNT):
+def get_rings_at_z(obj, z_target, max_ring_count=MAX_RING_COUNT):
     """
-    获取 z ≈ z_target 处的所有闭合环。
+    获取 z = z_target 处的所有闭合环。
 
     注意：
     - 一个顶点可能属于多个环，一条边也可能属于多个环。
@@ -578,7 +581,7 @@ def get_rings_at_z(obj, z_target, tol=1e-6, max_ring_count=MAX_RING_COUNT):
     mesh = obj.data
 
     # 获取目标 Z 高度上的顶点
-    candidates = {v.index: v for v in mesh.vertices if abs(v.co.z - z_target) < tol}
+    candidates = {v.index: v for v in mesh.vertices if v.co.z == z_target}
     if not candidates:
         return []
     candidate_indices = set(candidates.keys())
@@ -781,9 +784,9 @@ def get_ring_lengths(obj, rings):
     return ring_lengths
 
 
-def get_upper_ring(obj, z_target, tol=1e-6):
-    """返回 z ≈ z_target 处边长总和最大的顶点圈"""
-    rings = get_rings_at_z(obj, z_target, tol)
+def get_upper_ring(obj, z_target):
+    """返回 z = z_target 处边长总和最大的顶点圈"""
+    rings = get_rings_at_z(obj, z_target)
     if not rings:
         return set()
 
@@ -793,10 +796,10 @@ def get_upper_ring(obj, z_target, tol=1e-6):
     return set(sorted_rings[0])
 
 
-def get_under_ring(obj, z_target, b_names, tol=1e-6):
-    """返回 z ≈ z_target 处，平均受胸部影响最小的环"""
+def get_under_ring(obj, z_target, b_names):
+    """返回 z = z_target 处，平均受胸部影响最小的环"""
 
-    rings = get_rings_at_z(obj, z_target, tol)
+    rings = get_rings_at_z(obj, z_target)
 
     if not rings:
         return set()
