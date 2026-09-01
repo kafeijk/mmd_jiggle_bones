@@ -17,7 +17,7 @@ class AnalysisProperty(bpy.types.PropertyGroup):
     )
 
     extra_bones_str: bpy.props.StringProperty(
-        name="骨骼补充",
+        name="骨骼扩展",
         description="通过额外的胸部骨骼名称，扩展默认胸部匹配范围\n在此处输入胸部骨骼名称，并以中文逗号或英文逗号作为分隔",
         default='breast.L,breast.R',
         update=lambda self, context: self.sync_extra(context),

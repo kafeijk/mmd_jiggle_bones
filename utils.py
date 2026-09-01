@@ -629,3 +629,11 @@ def restore_selection(selected_objects, active_object):
             bpy.context.view_layer.objects.active = active_object
         except:
             pass
+
+
+def format_cm(value, decimals=2, unit=True):
+    if value is None:
+        return "None"
+
+    result = f"{value * 100:.{decimals}f}"
+    return f"{result} cm" if unit else result

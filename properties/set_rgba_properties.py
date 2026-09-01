@@ -7,12 +7,12 @@ from .batch_properties import BatchProperty
 
 class SetRgbaProperty(bpy.types.PropertyGroup):
     jiggle_adjustment_mode: bpy.props.EnumProperty(
-        name="抖动模式",
-        description="通过何种模式调节胸部抖动",
+        name="摇晃幅度",
+        description="通过何种方式调节胸部摇晃幅度",
         items=[
-            ("DEFAULT", "默认", "自动分析胸部参数，以此来设置抖动效果"),
-            ("CUSTOM_SIMPLIFY", "自定义（简化）", "手动填写部分胸部参数，以此来设置抖动效果，适用于单个模型的调整"),
-            ("CUSTOM", "自定义", "手动填写完整胸部参数，以此来设置抖动效果，适用于单个模型的调整")
+            ("DEFAULT", "默认", "自动分析胸部参数，以此来设置摇晃幅度"),
+            ("CUSTOM_SIMPLIFY", "自定义（简化）", "手动填写部分胸部参数，以此来设置摇晃幅度，适用于单个模型的调整"),
+            ("CUSTOM", "自定义", "手动填写完整胸部参数，以此来设置摇晃幅度，适用于单个模型的调整")
         ],
         default="DEFAULT",
         update=lambda self, context: self.set_default_params(context, "jiggle_adjustment_mode"),
@@ -202,7 +202,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
     )
 
     extra_bones_str: bpy.props.StringProperty(
-        name="骨骼补充",
+        name="骨骼扩展",
         description="通过额外的胸部骨骼名称，扩展默认胸部匹配范围\n在此处输入胸部骨骼名称，并以中文逗号或英文逗号作为分隔",
         default='breast.L,breast.R',
         update=lambda self, context: self.sync_extra(context),

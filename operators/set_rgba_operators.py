@@ -200,7 +200,7 @@ class SetRgbaOperator(bpy.types.Operator):
 
         # 筛选源模型胸部骨骼中的水平胸部骨骼，用于计算位置
         horizontal_bones = filter_horizontal_bones(armature, breast_bones)
-        # 从源模型胸部顶点中筛选权重大于WEIGHT_THRESHOLD的顶点，作为胸部网格范围，用于定位伪胸部骨骼的坐标 todo 骨骼补充，要不要参考下非MMD模型的胸部预设
+        # 从源模型胸部顶点中筛选权重大于WEIGHT_THRESHOLD的顶点，作为胸部网格范围，用于定位伪胸部骨骼的坐标
         primary, marginal = get_vertices_influenced_by_bones(obj, [b.name for b in breast_bones])
         if not primary and not marginal:
             clean_tmp_collection()

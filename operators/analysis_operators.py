@@ -1088,18 +1088,36 @@ def crop_mesh_by_z(obj, z_min, z_max):
 class AnalysisOperator(bpy.types.Operator):
     bl_idname = "mmd_jiggle_tools.analysis"  # 引用时的唯一标识符
     bl_label = "执行"  # 显示名称（F3搜索界面，不过貌似需要注册，和panel中显示的内容区别开）
-    bl_description = ("分析模型胸部尺码\n"
-                      "\n"
-                      "执行后注意事项：\n"
-                      "1：选中网格对象并进入编辑模式，可查看参考点的选取（必要时可切换透视模式）\n"
-                      "2：由于参考点的选取误差及尺码计算的简化，结果可能与实际存在偏差\n"
-                      "3：显示的结果为插件筛选后的值，切换系统控制台可查看完整执行结果\n"
-                      "4：「尺码范围」指逐步扩展胸部选择范围后，得到的尺码集合\n"
-                      "5：「尺码」指尺码范围的前两种结果中，出现次数较多的那一种\n"
-                      "6：「单侧胸宽」、「胸部深度」、「胸部高度」为当前尺码下的测量值\n"
-                      "7：若束胸、束腰等服装影响尺码判断，可在引入内侧点的尺码范围内选取尺码\n"
-                      "8：测量值如有偏差，请在未引入内侧点的尺码范围内手动校准")
     bl_options = {'REGISTER', 'UNDO'}  # 启用撤销功能
+
+    @classmethod
+    def description(cls, context, properties):
+        tips = [
+            "执行后选中网格对象并进入编辑模式，可查看参考点的选取情况",
+            "由于参考点的选取误差及尺码计算的简化，结果可能与实际存在偏差",
+            "显示的结果为插件筛选后的值，切换系统控制台可查看完整执行结果",
+            "「尺码列表」指逐步扩展胸部选择范围后，得到的尺码列表",
+            "「尺码列表（扩展）」指在束胸、束腰等服装影响胸部形状，导致「尺码范围」不准确时，用于参考的扩展尺码列表"
+        ]
+
+        tip_index = {
+            "DEFAULT": [0, 1, 2, 3, 4],
+            "BASEBODY": [0, 2, 3],
+        }
+
+        analysis_type = context.scene.mmd_jiggle_tools_analysis.type
+
+        show_tips = [
+            f"{i + 1}：{tips[index]}"
+            for i, index in enumerate(tip_index.get(analysis_type, []))
+        ]
+
+        return (
+                "分析模型胸部尺码\n"
+                "\n"
+                "注意事项：\n"
+                + "\n".join(show_tips)
+        )
 
     def execute(self, context):
         """
@@ -1332,22 +1350,22 @@ def build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inne
         breast_y = under_co.y - nipple_co.y
         breast_z = (nipple_co.z - under_co.z) * 2
 
-        msg.append(f"单侧胸宽: {round(breast_x, 3)} m")
-        msg.append(f"胸部深度: {round(breast_y, 3)} m")
-        msg.append(f"胸部高度: {round(breast_z, 3)} m")
-        msg.append(f"尺码范围: {cups}")
-        msg.append(f"尺码范围（引入内侧点）: {cup_inners if cup_inners else []}")
+        msg.append(f"单侧胸宽: {format_cm(breast_x)}")
+        msg.append(f"胸部深度: {format_cm(breast_y)}")
+        msg.append(f"胸部高度: {format_cm(breast_z)}")
+        msg.append(f"尺码列表: {cups}")
+        msg.append(f"尺码列表（扩展）: {cup_inners if cup_inners else []}")
 
         total_msg = build_log_table(results,
-                                    ("Status", "Threshold", "Side Width", "Depth", "Height", "Size", "Size (Corset)"),
+                                    ("Status", "Threshold", "Side Width", "Depth", "Height", "Size", "Size (Extended)"),
                                     fill_row)
     else:
         upper_bust = result.upper_bust
         under_bust = result.under_bust
         bust_diff = result.bust_diff
-        msg.append(f"上胸围: {round(upper_bust * 100, 2) if upper_bust else 'None'} cm")
-        msg.append(f"下胸围: {round(under_bust * 100, 2) if under_bust else 'None'} cm")
-        msg.append(f"围差: {round(bust_diff * 100, 2) if bust_diff else 'None'} cm")
+        msg.append(f"上胸围: {format_cm(upper_bust)}")
+        msg.append(f"下胸围: {format_cm(under_bust)}")
+        msg.append(f"围差: {format_cm(bust_diff)}")
 
         total_msg = build_log_table(results,
                                     ("Status", "Threshold", "Upper Bust", "Under Bust", "Bust Diff", "Size"),
@@ -1400,9 +1418,9 @@ def fill_row(r):
     return (
         r.status.name,
         r.threshold,
-        round(breast_x, 3) if breast_x else 'None',
-        round(breast_y, 3) if breast_y else 'None',
-        round(breast_z, 3) if breast_y else 'None',
+        format_cm(breast_x, unit=False),
+        format_cm(breast_y, unit=False),
+        format_cm(breast_z, unit=False),
         r.cup if r.cup else 'None',
         r.cup_inner if r.cup_inner else 'None',
     )
@@ -1412,9 +1430,9 @@ def fill_bust_row(r):
     return (
         r.status.name,
         r.threshold,
-        round(r.upper_bust * 100, 2) if r.upper_bust else 'None',
-        round(r.under_bust * 100, 2) if r.under_bust else 'None',
-        round(r.bust_diff * 100, 2) if r.bust_diff else 'None',
+        format_cm(r.upper_bust, unit=False),
+        format_cm(r.under_bust, unit=False),
+        format_cm(r.bust_diff, unit=False),
         r.cup if r.cup else 'None',
     )
 
@@ -2128,18 +2146,20 @@ def batch_do_analysis(obj_vgs_map, analysis_type):
 
 def filter_results(results):
     """从多次执行的结果中，筛选出最合适的那个结果"""
-    results = [r for r in results if r.status == AnalysisStatus.OK and r.cup is not None]
-    results.sort(key=lambda r: r.threshold, reverse=True)
-    cups = [r.cup for r in results]
-    cup_inners = [r.cup_inner for r in results if r.cup_inner is not None]
+    filtered_results = [r for r in results if r.status == AnalysisStatus.OK and r.cup is not None]
+    filtered_results.sort(key=lambda r: r.threshold, reverse=True)
 
-    lower_bound_index = results[0].cup_index
+    # 获取尺码列表，用于展示
+    cups = [r.cup if r.cup else "" for r in results]
+    cup_inners = [r.cup_inner if r.cup_inner else "" for r in results]
+
+    lower_bound_index = filtered_results[0].cup_index
 
     lower_count = 0
     lower_bound_next_index = None
     lower_count_plus_1 = 0
 
-    for result in results:
+    for result in filtered_results:
         idx = result.cup_index
 
         # 统计最小cup的连续数量
@@ -2159,9 +2179,9 @@ def filter_results(results):
 
     # 如果最小cup连续出现多次，取稍大的，否则取相邻cup中稍小的
     if lower_count >= lower_count_plus_1:
-        return results[lower_count - 1], cups, cup_inners
+        return filtered_results[lower_count - 1], cups, cup_inners
     else:
-        return results[lower_count], cups, cup_inners
+        return filtered_results[lower_count], cups, cup_inners
 
 
 def select_verts(objs, cos):
