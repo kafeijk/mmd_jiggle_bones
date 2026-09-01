@@ -662,7 +662,8 @@ def apply_scale_diff(rb_parent_l, rb_parent_r, x_r, z_r, rb_scale_factor):
     breast_r = (x_r + z_r) / 2
     r = b_rb_l.mmd_rigid.size[0]
     # 由于胸部并非完美球形，弥补缩放差后胸部刚体会超出实际胸部区域，所以需乘上rb_scale_factor
-    scale_factor = breast_r / r * rb_scale_factor
+    # 0.6是一个较为合适的值，用于将rb_scale_factor参数归一化
+    scale_factor = breast_r / r * 0.6 * rb_scale_factor
 
     # 缩放RGBA胸部刚体以适配源模型胸部区域
     b_rb_l.mmd_rigid.size[0] *= scale_factor

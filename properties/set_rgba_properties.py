@@ -175,7 +175,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
     rb_scale_factor: bpy.props.FloatProperty(
         name="刚体缩放",
         description="胸部刚体缩放，用于调节胸部刚体大小",
-        default=0.6,
+        default=1,
         min=0.01,
         max=2,
         precision=2,
