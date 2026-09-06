@@ -1199,7 +1199,10 @@ def recursive_search(props):
         print(f"原模型文件:{original_files}")
         print(f"原模型文件（已优化过）:{processed_files}")
         if search_strategy == 'LATEST':
-            selected = [max(original_files, key=lambda x: os.path.getmtime(os.path.join(root, x)))]
+            if original_files:
+                selected = [max(original_files, key=lambda x: os.path.getmtime(os.path.join(root, x)))]
+            else:
+                selected = []
         elif search_strategy == 'ALL':
             selected = original_files
         print(f"原模型文件（检索模式-{search_strategy}）：{selected}")
