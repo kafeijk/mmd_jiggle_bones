@@ -887,11 +887,15 @@ def get_accessory_info(armature, breast_bones, breast_names, joint_parent, rb_pa
         object1 = joint.rigid_body_constraint.object1
         object2 = joint.rigid_body_constraint.object2
 
-        # todo 根据实际位置确定左右
         if object1.name in accessory_rb_names and object2.name in breast_rb_names:
-            kept_joints[joint.name] = "L" if "左" in object2.name else "R"
+            breast_rb = object2
         elif object1.name in breast_rb_names and object2.name in accessory_rb_names:
-            kept_joints[joint.name] = "L" if "左" in object1.name else "R"
+            breast_rb = object1
+        else:
+            breast_rb = None
+
+        if breast_rb:
+            kept_joints[joint.name] = "L" if breast_rb.location.x > 0 else "R"
     return accessory_breast_rel_map, kept_joints
 
 
