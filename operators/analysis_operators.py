@@ -1329,17 +1329,17 @@ def set_joint_param(context, nipple_co, under_co, result):
     if mode == 'CUSTOM_SIMPLIFY':
         settings.breast_x = breast_x
         settings.breast_y = breast_y
-        settings.breast_z = breast_z
+        settings.breast_z = abs(breast_z)
 
     elif mode == 'CUSTOM':
         settings.limit_lin_x_lower = -breast_x * 2
         settings.limit_lin_x_upper = breast_x * 2
 
-        settings.limit_lin_y_lower = -breast_z * 2
-        settings.limit_lin_y_upper = breast_z * 2
+        settings.limit_lin_y_lower = -breast_y
+        settings.limit_lin_y_upper = breast_y
 
-        settings.limit_lin_z_lower = -breast_y
-        settings.limit_lin_z_upper = breast_y
+        settings.limit_lin_z_lower = -abs(breast_z) * 2
+        settings.limit_lin_z_upper = abs(breast_z) * 2
 
 
 def build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups, total_time):

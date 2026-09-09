@@ -207,14 +207,14 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         default='breast.L,breast.R',
         update=lambda self, context: self.sync_extra(context),
     )
-
+    # 经测试，0.25可以覆盖到尺码Z
     breast_x: bpy.props.FloatProperty(
         name="单侧胸宽",
         subtype="DISTANCE",
         description="",
-        default=0.5,
+        default=0.25,
         min=0,
-        max=0.5,
+        max=0.25,
         precision=3,
         step=0.1,
     )
@@ -232,9 +232,9 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         name="胸部高度",
         subtype="DISTANCE",
         description="",
-        default=0.5,
+        default=0.25,
         min=0,
-        max=0.5,
+        max=0.25,
         precision=3,
         step=0.1,
     )

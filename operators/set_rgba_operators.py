@@ -382,28 +382,27 @@ def set_joint_limits(root, joint_parent, props):
         # 胸部尺寸参数与关节参数之间的对应关系，基于实际调试效果推算得出
         limit_lin_x_lower_mmd = -breast_x * 2 * MODEL_SCALE
         limit_lin_x_upper_mmd = breast_x * 2 * MODEL_SCALE
-        limit_lin_y_lower_mmd = -breast_z * 2 * MODEL_SCALE
-        limit_lin_y_upper_mmd = breast_z * 2 * MODEL_SCALE
-        limit_lin_z_lower_mmd = -breast_y * MODEL_SCALE
-        limit_lin_z_upper_mmd = breast_y * MODEL_SCALE
+        limit_lin_y_lower_mmd = -breast_y * MODEL_SCALE
+        limit_lin_y_upper_mmd = breast_y * MODEL_SCALE
+        limit_lin_z_lower_mmd =breast_z  * 2 * MODEL_SCALE
+        limit_lin_z_upper_mmd =breast_z * 2 * MODEL_SCALE
 
     elif mode == "CUSTOM_SIMPLIFY":
         # 与DEFAULT模式保持相同的设置逻辑，但胸部尺寸参数由用户输入
         limit_lin_x_lower_mmd = -props.breast_x * 2 * MODEL_SCALE
         limit_lin_x_upper_mmd = props.breast_x * 2 * MODEL_SCALE
-        limit_lin_y_lower_mmd = -props.breast_z * 2 * MODEL_SCALE
-        limit_lin_y_upper_mmd = props.breast_z * 2 * MODEL_SCALE
-        limit_lin_z_lower_mmd = -props.breast_y * MODEL_SCALE
-        limit_lin_z_upper_mmd = props.breast_y * MODEL_SCALE
-
+        limit_lin_y_lower_mmd = -props.breast_y * MODEL_SCALE
+        limit_lin_y_upper_mmd = props.breast_y * MODEL_SCALE
+        limit_lin_z_lower_mmd = -props.breast_z * 2 * MODEL_SCALE
+        limit_lin_z_upper_mmd = props.breast_z * 2 * MODEL_SCALE
     else:
         # 自定义时，参数含义与PE一致，仅做缩放处理
         limit_lin_x_lower_mmd = props.limit_lin_x_lower * MODEL_SCALE
         limit_lin_x_upper_mmd = props.limit_lin_x_upper * MODEL_SCALE
-        limit_lin_y_lower_mmd = props.limit_lin_z_lower * MODEL_SCALE
-        limit_lin_y_upper_mmd = props.limit_lin_z_upper * MODEL_SCALE
-        limit_lin_z_lower_mmd = props.limit_lin_y_lower * MODEL_SCALE
-        limit_lin_z_upper_mmd = props.limit_lin_y_upper * MODEL_SCALE
+        limit_lin_y_lower_mmd = props.limit_lin_y_lower * MODEL_SCALE
+        limit_lin_y_upper_mmd = props.limit_lin_y_upper * MODEL_SCALE
+        limit_lin_z_lower_mmd = props.limit_lin_z_lower * MODEL_SCALE
+        limit_lin_z_upper_mmd = props.limit_lin_z_upper * MODEL_SCALE
 
     for joint in joint_parent.children:
         if joint.mmd_joint.name_j not in {BREAST_JP_NAME_L, BREAST_JP_NAME_R}:
