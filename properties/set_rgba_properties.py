@@ -211,7 +211,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
     breast_x: bpy.props.FloatProperty(
         name="单侧胸宽",
         subtype="DISTANCE",
-        description="",
+        description="胸部所占宽度的一半，可影响到胸部的左右摇晃",
         default=0.25,
         min=0,
         max=0.25,
@@ -221,7 +221,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
     breast_y: bpy.props.FloatProperty(
         name="胸部深度",
         subtype="DISTANCE",
-        description="",
+        description="胸部前侧与胸部底部之间的水平距离，可影响到胸部的前后摇晃",
         default=0.3,
         min=0,
         max=0.3,
@@ -231,7 +231,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
     breast_z: bpy.props.FloatProperty(
         name="胸部高度",
         subtype="DISTANCE",
-        description="",
+        description="胸部前侧与胸部底部之间的垂直距离的2倍，可影响到胸部的上下摇晃",
         default=0.25,
         min=0,
         max=0.25,
