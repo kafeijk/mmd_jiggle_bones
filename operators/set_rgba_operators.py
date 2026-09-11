@@ -384,8 +384,8 @@ def set_joint_limits(root, joint_parent, props):
         limit_lin_x_upper_mmd = breast_x * 2 * MODEL_SCALE
         limit_lin_y_lower_mmd = -breast_y * MODEL_SCALE
         limit_lin_y_upper_mmd = breast_y * MODEL_SCALE
-        limit_lin_z_lower_mmd =breast_z  * 2 * MODEL_SCALE
-        limit_lin_z_upper_mmd =breast_z * 2 * MODEL_SCALE
+        limit_lin_z_lower_mmd = -breast_z * 2 * MODEL_SCALE
+        limit_lin_z_upper_mmd = breast_z * 2 * MODEL_SCALE
 
     elif mode == "CUSTOM_SIMPLIFY":
         # 与DEFAULT模式保持相同的设置逻辑，但胸部尺寸参数由用户输入
