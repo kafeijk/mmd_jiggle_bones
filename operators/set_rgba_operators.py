@@ -293,8 +293,8 @@ class SetRgbaOperator(bpy.types.Operator):
         repair_accessory(root, accessory_breast_rel_map, kept_joints)
         # 将胸部刚体绑定到源模型的身体骨骼
         bind_rb_to_body(rb_parent, target_upper_body_name)
-        # 设置胸部刚体碰撞组并对胸部刚体及胸部Joint重排序
-        set_collision_and_resort(root, accessory_breast_rel_map, props)
+        # 设置胸部刚体碰撞组、修改胸饰刚体质量、对胸部刚体及Joint重排序
+        configure_collision_mass_order(root, accessory_breast_rel_map, props)
         # 恢复“物理”显示枠位置
         if physics_frame_index != -1:
             frames.move(frames.find(PHYSICAL_FRAME_NAME), physics_frame_index)
@@ -459,9 +459,9 @@ def get_rb_bone_rel_map(rb_parent):
     return rbn_bone_map, rbn_rb_map, bone_rbs_map
 
 
-def set_collision_and_resort(root, accessory_breast_rel_map, props):
+def configure_collision_mass_order(root, accessory_breast_rel_map, props):
     """
-    设置刚体碰撞组并对RGBA胸部刚体及Joint重排序
+    设置胸部刚体碰撞组、修改胸饰刚体质量、对胸部刚体及Joint重排序
     创建“双臂衝突刚体”，仅对“胸部刚体”碰撞，“胸部刚体”仅对“双臂衝突刚体”碰撞
     如果其它物理刚体的碰撞组与“胸部刚体”相同，且碰巧与“双臂衝突刚体”发生碰撞，也无所谓；如果其它物理刚体的碰撞组与“双臂衝突刚体”相同，且碰巧与“胸部刚体”发生碰撞，有影响概率较低
     创建“胸部衝突刚体”，仅对物理刚体碰撞，物理刚体是否对“胸部衝突刚体”碰撞，取决于原本设置，为了尽可能减少对碰撞组的占用，“胸部衝突刚体”的碰撞组与“胸部刚体”相同
@@ -569,6 +569,8 @@ def set_collision_and_resort(root, accessory_breast_rel_map, props):
         # 胸部子级和胸部如果有碰撞且穿模，设置为非碰撞，如朱鸢
         rgba_rbs = [rb for rb in rigid_bodies if rb.mmd_rigid.name_j in RGBA_RB_NAMES]
         accessory_bone_names = expand_accessory_bone_names(armature, accessory_breast_rel_map)
+
+        accessory_rbs = []
         for rb in rigid_bodies:
             if rb.mmd_rigid.type not in ('1', '2'):
                 continue
@@ -576,6 +578,7 @@ def set_collision_and_resort(root, accessory_breast_rel_map, props):
                 continue
             if rb.mmd_rigid.bone not in accessory_bone_names:
                 continue
+            accessory_rbs.append(rb)
             if rb.mmd_rigid.collision_group_mask[breast_rb_group] is True:
                 continue
             for rgba_rb in rgba_rbs:
@@ -583,6 +586,16 @@ def set_collision_and_resort(root, accessory_breast_rel_map, props):
                 if intersection:
                     rb.mmd_rigid.collision_group_mask[breast_rb_group] = True
                     break
+
+        # 将胸饰刚体中的最大质量值调整为0.01，并按比例缩放其他胸饰刚体的质量
+        if accessory_rbs:
+            max_mass = 0.0
+            for rb in accessory_rbs:
+                max_mass = max(max_mass, rb.rigid_body.mass)
+            if max_mass > 0:
+                scale = 0.01 / max_mass
+                for rb in accessory_rbs:
+                    rb.rigid_body.mass *= scale
 
     # 刚体顺序重排序
     breast_rbs = []
