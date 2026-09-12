@@ -59,6 +59,7 @@ class AnalysisResult:
     tmp_obj_for_base_body: object | None = None
 
     opposite_normals: bool = False
+    max_weight: float | None = None
 
 
 @dataclass
@@ -1586,6 +1587,7 @@ def get_verts_influenced_by_bones(obj, bone_names, threshold, right=True):
 
     verts = []
     count = 0
+    max_weight = 0.0
     for v in obj.data.vertices:
         # 仅根据 bone_names 判断左右侧可能存在误差（如权重绑定错误：少女前线2的克莱妲），因此需通过顶点实际位置进行二次校验。
         if right and v.co.x < 0:
@@ -1599,9 +1601,12 @@ def get_verts_influenced_by_bones(obj, bone_names, threshold, right=True):
             if g.group in target_groups:
                 total_weight += g.weight
 
+        if total_weight > max_weight:
+            max_weight = total_weight
+
         if total_weight > threshold:
             verts.append(v)
-    return verts
+    return verts, max_weight
 
 
 def delete_unwanted_vertices(obj, keep_vertex_indices):
@@ -1944,11 +1949,14 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type):
     """分析胸部尺寸"""
     # 网格对象 -> 胸部范围（高于权重阈值的顶点）
     obj_verts_map = {}
+    max_weight = 0.0
     for source_obj, vg_names in obj_vgs_map.items():
-        source_vertices = get_verts_influenced_by_bones(source_obj, vg_names, threshold)
+        source_vertices, part_weight = get_verts_influenced_by_bones(source_obj, vg_names, threshold)
         if not source_vertices:
             continue
         obj_verts_map[source_obj] = source_vertices
+        if part_weight > max_weight:
+            max_weight = part_weight
 
     vg_names_l = sorted({vg for vgs in obj_vgs_map.values() for vg in vgs})
     if not obj_verts_map:
@@ -2041,7 +2049,8 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type):
         cup_inner=cup_inner,
         cup_inner_index=cup_inner_index,
         tmp_obj=tmp_obj,
-        opposite_normals=opposite_normals
+        opposite_normals=opposite_normals,
+        max_weight=max_weight
     )
 
 

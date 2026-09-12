@@ -359,42 +359,44 @@ def analyze_breast(root, extra_bones):
 def set_joint_limits(root, joint_parent, props):
     mode = props.jiggle_adjustment_mode
     cup = None
-    if mode == "DEFAULT":
-        # RGBA刚体依然保留了普通胸部刚体的结构，包括胸部骨骼、胸部刚体和胸部Joint，其余刚体与Joint仅作为辅助使用。
-        # 也就是说，真正影响胸部骨骼运动的刚体是绑定到该骨骼的物理刚体，因此只需修改对应Joint的限定值即可实现抖动幅度的变化。
-        # 另外，改变胸部权重会影响原本模型，导致其被修改后不适合继续作为其它流程的基模，而修改Joint限定值可以解决该问题
+    cup_index = None
+    max_weight = None
+
+    if mode in ["DEFAULT", "CUSTOM_SIMPLIFY"]:
         err_msg, result = analyze_breast(root, props.extra_bones_str)
         if err_msg:
             return False, err_msg, None
 
-        # 单侧胸宽
-        breast_x = result.max_x
-        # 胸部深度
-        breast_y = result.under_co.y - result.nipple_co.y
-        # 胸部高度
-        breast_z = (result.nipple_co.z - result.under_co.z) * 2
-        # 胸部尺码
-        cup = result.cup
+        breast_x = None
+        breast_y = None
+        breast_z = None
 
-        # 根据单侧胸宽、胸部深度和胸部高度等实际参数值，分别调整对应关节参数
-        # 替代此前「在默认值的基础上，使用特定比例对所有关节参数进行统一缩放（实际上只有缩）」的方式
-        # 这样可以降低上下方向的弹跳幅度，同时增强横向晃动效果
-        # 胸部尺寸参数与关节参数之间的对应关系，基于实际调试效果推算得出
-        limit_lin_x_lower_mmd = -breast_x * 2 * MODEL_SCALE
-        limit_lin_x_upper_mmd = breast_x * 2 * MODEL_SCALE
+        if mode == "DEFAULT":
+            breast_x = result.max_x
+            breast_y = result.under_co.y - result.nipple_co.y
+            breast_z = (result.nipple_co.z - result.under_co.z) * 2
+
+            cup = result.cup
+            cup_index = result.cup_index
+            # 胸部最高权重值
+            max_weight = result.max_weight
+        elif mode == "CUSTOM_SIMPLIFY":
+            breast_x = props.breast_x
+            breast_y = props.breast_y
+            breast_z = props.breast_z
+
+            cup, cup_index = next((c, i) for i, (limit, c) in enumerate(CUP_LIST) if breast_y * 2 * 100 < limit)
+            max_weight = result.max_weight
+
+        # RGBA刚体依然保留了普通胸部刚体的结构，包括胸部骨骼、胸部刚体和胸部Joint，其余刚体与Joint仅作为辅助使用。
+        # 也就是说，真正影响胸部骨骼运动的刚体是绑定到该骨骼的物理刚体，因此只需修改对应Joint的限定值即可实现抖动幅度的变化。
+        # 另外，改变胸部权重会影响原本模型，导致其被修改后不适合继续作为其它流程的基模，而修改Joint限定值可以解决该问题
+        limit_lin_x_lower_mmd = -breast_x * 1.5 * MODEL_SCALE
+        limit_lin_x_upper_mmd = breast_x * 1.5 * MODEL_SCALE
         limit_lin_y_lower_mmd = -breast_y * MODEL_SCALE
         limit_lin_y_upper_mmd = breast_y * MODEL_SCALE
-        limit_lin_z_lower_mmd = -breast_z * 2 * MODEL_SCALE
-        limit_lin_z_upper_mmd = breast_z * 2 * MODEL_SCALE
-
-    elif mode == "CUSTOM_SIMPLIFY":
-        # 与DEFAULT模式保持相同的设置逻辑，但胸部尺寸参数由用户输入
-        limit_lin_x_lower_mmd = -props.breast_x * 2 * MODEL_SCALE
-        limit_lin_x_upper_mmd = props.breast_x * 2 * MODEL_SCALE
-        limit_lin_y_lower_mmd = -props.breast_y * MODEL_SCALE
-        limit_lin_y_upper_mmd = props.breast_y * MODEL_SCALE
-        limit_lin_z_lower_mmd = -props.breast_z * 2 * MODEL_SCALE
-        limit_lin_z_upper_mmd = props.breast_z * 2 * MODEL_SCALE
+        limit_lin_z_lower_mmd = -breast_z * 0.5 * MODEL_SCALE
+        limit_lin_z_upper_mmd = breast_z * 0.5 * MODEL_SCALE
     else:
         # 自定义时，参数含义与PE一致，仅做缩放处理
         limit_lin_x_lower_mmd = props.limit_lin_x_lower * MODEL_SCALE
@@ -403,7 +405,6 @@ def set_joint_limits(root, joint_parent, props):
         limit_lin_y_upper_mmd = props.limit_lin_y_upper * MODEL_SCALE
         limit_lin_z_lower_mmd = props.limit_lin_z_lower * MODEL_SCALE
         limit_lin_z_upper_mmd = props.limit_lin_z_upper * MODEL_SCALE
-
     for joint in joint_parent.children:
         if joint.mmd_joint.name_j not in {BREAST_JP_NAME_L, BREAST_JP_NAME_R}:
             continue
@@ -424,6 +425,14 @@ def set_joint_limits(root, joint_parent, props):
             rbc.limit_ang_y_upper = props.limit_ang_y_upper
             rbc.limit_ang_z_lower = props.limit_ang_z_lower
             rbc.limit_ang_z_upper = props.limit_ang_z_upper
+        else:
+            if cup_index and cup_index <= get_cup_index("B") and max_weight and max_weight >= 0.99:
+                rbc.limit_ang_x_lower = rbc.limit_ang_x_lower / 10
+                rbc.limit_ang_x_upper = rbc.limit_ang_x_upper / 10
+                rbc.limit_ang_y_lower = rbc.limit_ang_y_lower / 10
+                rbc.limit_ang_y_upper = rbc.limit_ang_y_upper / 10
+                rbc.limit_ang_z_lower = rbc.limit_ang_z_lower / 10
+                rbc.limit_ang_z_upper = rbc.limit_ang_z_upper / 10
     return True, None, cup
 
 
