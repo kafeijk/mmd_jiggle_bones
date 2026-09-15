@@ -2264,12 +2264,13 @@ def filter_results(results):
     """从多次执行的结果中，筛选出最合适的那个结果"""
     filtered_results = [r for r in results if r.status == AnalysisStatus.OK and r.cup is not None]
     filtered_results.sort(key=lambda r: r.threshold, reverse=True)
+    lower_bound_index = filtered_results[0].cup_index
+    # 过滤掉比初始尺码还低的结果
+    filtered_results = [r for r in filtered_results if r.cup_index >= lower_bound_index]
 
     # 获取尺码列表，用于展示
     cups = [r.cup if r.cup else "" for r in results]
     cup_inners = [r.cup_inner if r.cup_inner else "" for r in results]
-
-    lower_bound_index = filtered_results[0].cup_index
 
     lower_count = 0
     lower_bound_next_index = None
