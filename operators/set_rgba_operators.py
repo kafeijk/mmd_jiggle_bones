@@ -1,4 +1,3 @@
-import math
 import os
 from collections import defaultdict, OrderedDict
 from datetime import datetime
@@ -7,14 +6,15 @@ import bmesh
 import mathutils
 from mathutils.bvhtree import BVHTree
 
-from .analysis_operators import validate_analysis_param
-from .analysis_operators import preprocess
-from .analysis_operators import batch_do_analysis
 from .analysis_operators import AnalysisStatus
+from .analysis_operators import batch_do_analysis
 from .analysis_operators import build_all_failed_msg
 from .analysis_operators import filter_results
-from ..utils import *
+from .analysis_operators import preprocess
+from .analysis_operators import process_source_objs
+from .analysis_operators import validate_analysis_param
 from ..mmd_utils import FnModel
+from ..utils import *
 
 
 def get_mmd_info(root):
@@ -302,10 +302,22 @@ class SetRgbaOperator(bpy.types.Operator):
             # 物理显示枠来源于RGBA素材
             frames.move(frames.find(PHYSICAL_FRAME_NAME), len(root.mmd_root.display_item_frames) - 1)
 
-        set_flag, err_msg, cup = set_joint_limits(root, joint_parent, props)
-        if not set_flag:
-            clean_tmp_collection()
-            return name, "ERROR", err_msg
+        # 摇晃幅度为默认时，获取尺码信息
+        mode = props.jiggle_adjustment_mode
+        result = None
+        if mode == "DEFAULT":
+            err_msg, result = analyze_breast(root, props.extra_bones_str)
+            if err_msg:
+                return name, "ERROR", err_msg
+
+        # 重映射权重
+        # 因为改变了权重分布，所以要在analyze_breast之后执行，否则得到的cup信息并非原始模型的
+        # 因为将权重重映射到了1，所以要在set_joint_limits之前进行该操作，避免无法对小于B尺码的模型做优化
+        mode = props.jiggle_adjustment_mode
+        if mode in ["DEFAULT", "CUSTOM_SIMPLIFY"]:
+            remap_breast_weights(obj)
+
+        cup = set_joint_limits(joint_parent, props, result=result)
 
         # 导出模型
         deselect_all_objects()
@@ -334,16 +346,21 @@ def analyze_breast(root, extra_bones):
     deselect_all_objects()
     select_and_activate(root)
 
+    # 校验参数
     err_msg, data = validate_analysis_param(root, extra_bones)
     if err_msg:
         return err_msg, None
 
+    # 预处理
     source_objs = data["source_objs"]
-    obj_vgs_map = data["obj_vgs_map"]
-
     preprocess(root, source_objs)
 
-    results = batch_do_analysis(obj_vgs_map, "DEFAULT")
+    # 复制对象并进行切割，减少后续处理耗时
+    # 重映射胸部权重，提高胸部边缘区域权重，从而提升尺码选择时的准确率
+    process_source_objs(data)
+    copied_obj_vgs_map = data["copied_obj_vgs_map"]
+
+    results = batch_do_analysis(copied_obj_vgs_map, "DEFAULT")
     if all(r.status != AnalysisStatus.OK for r in results):
         msg = build_all_failed_msg(results)
         return msg, None
@@ -356,16 +373,12 @@ def analyze_breast(root, extra_bones):
     return None, analysis_result
 
 
-def set_joint_limits(root, joint_parent, props):
+def set_joint_limits(joint_parent, props, result=None):
     mode = props.jiggle_adjustment_mode
     cup = None
     cup_index = None
-    max_weight = None
 
     if mode in ["DEFAULT", "CUSTOM_SIMPLIFY"]:
-        err_msg, result = analyze_breast(root, props.extra_bones_str)
-        if err_msg:
-            return False, err_msg, None
 
         breast_x = None
         breast_y = None
@@ -378,23 +391,20 @@ def set_joint_limits(root, joint_parent, props):
 
             cup = result.cup
             cup_index = result.cup_index
-            # 胸部最高权重值
-            max_weight = result.max_weight
         elif mode == "CUSTOM_SIMPLIFY":
             breast_x = props.breast_x
             breast_y = props.breast_y
             breast_z = props.breast_z
 
             cup, cup_index = next((c, i) for i, (limit, c) in enumerate(CUP_LIST) if breast_y * 2 * 100 < limit)
-            max_weight = result.max_weight
 
         # RGBA刚体依然保留了普通胸部刚体的结构，包括胸部骨骼、胸部刚体和胸部Joint，其余刚体与Joint仅作为辅助使用。
         # 也就是说，真正影响胸部骨骼运动的刚体是绑定到该骨骼的物理刚体，因此只需修改对应Joint的限定值即可实现抖动幅度的变化。
         # 另外，改变胸部权重会影响原本模型，导致其被修改后不适合继续作为其它流程的基模，而修改Joint限定值可以解决该问题
         limit_lin_x_lower_mmd = -breast_x * 1.5 * MODEL_SCALE
         limit_lin_x_upper_mmd = breast_x * 1.5 * MODEL_SCALE
-        limit_lin_y_lower_mmd = -breast_y * MODEL_SCALE
-        limit_lin_y_upper_mmd = breast_y * MODEL_SCALE
+        limit_lin_y_lower_mmd = -breast_y * 1 * MODEL_SCALE
+        limit_lin_y_upper_mmd = breast_y * 1 * MODEL_SCALE
         limit_lin_z_lower_mmd = -breast_z * 0.5 * MODEL_SCALE
         limit_lin_z_upper_mmd = breast_z * 0.5 * MODEL_SCALE
     else:
@@ -426,14 +436,14 @@ def set_joint_limits(root, joint_parent, props):
             rbc.limit_ang_z_lower = props.limit_ang_z_lower
             rbc.limit_ang_z_upper = props.limit_ang_z_upper
         else:
-            if cup_index and cup_index <= get_cup_index("B") and max_weight and max_weight >= 0.99:
+            if cup_index and cup_index <= get_cup_index("B"):
                 rbc.limit_ang_x_lower = rbc.limit_ang_x_lower / 10
                 rbc.limit_ang_x_upper = rbc.limit_ang_x_upper / 10
                 rbc.limit_ang_y_lower = rbc.limit_ang_y_lower / 10
                 rbc.limit_ang_y_upper = rbc.limit_ang_y_upper / 10
                 rbc.limit_ang_z_lower = rbc.limit_ang_z_lower / 10
                 rbc.limit_ang_z_upper = rbc.limit_ang_z_upper / 10
-    return True, None, cup
+    return cup
 
 
 def get_prop_default_value(struct, identifier):
@@ -981,59 +991,6 @@ def apply_transform_to_objects(objects, trans):
         bpy.ops.object.transform_apply(location=trans[0], rotation=trans[1], scale=trans[2])
 
 
-def trans_vg(obj, source_vg_name, target_vg_name, factor=1.0, remove_source=True):
-    """将顶点权重从源顶点组传递到目标顶点组"""
-    deselect_all_objects()
-    select_and_activate(obj)
-    vgs = obj.vertex_groups
-
-    if source_vg_name == target_vg_name:
-        return
-    # 源顶点组不存在则跳过
-    if source_vg_name not in vgs:
-        return
-    # 目标顶点组不存在则新建
-    if target_vg_name not in vgs:
-        obj.vertex_groups.new(name=target_vg_name)
-
-    source_vg = vgs[source_vg_name]
-    target_vg = vgs[target_vg_name]
-    source_vg_index = source_vg.index
-    target_vg_index = target_vg.index
-
-    for vert in obj.data.vertices:
-        v_index = vert.index
-
-        # 获取源顶点组权重
-        src_weight = 0.0
-        for g in vert.groups:
-            if g.group == source_vg_index:
-                src_weight = g.weight
-                break
-
-        if src_weight > 0:
-            # 计算传递权重
-            transfer_weight = src_weight * factor
-
-            # 获取目标顶点组当前权重
-            tgt_weight = 0.0
-            for g in vert.groups:
-                if g.group == target_vg_index:
-                    tgt_weight = g.weight
-                    break
-
-            # 将传递权重添加到目标顶点组
-            target_vg.add([v_index], tgt_weight + transfer_weight, 'REPLACE')
-
-            # 处理源顶点组权重
-            if remove_source:
-                # 完全转移，移除源权重
-                source_vg.remove([v_index])
-            else:
-                # 按 factor 减少源权重
-                source_vg.add([v_index], src_weight * (1 - factor), 'REPLACE')
-
-
 def filter_horizontal_bones(armature, breast_bones):
     # 假设 breast_bones 已经存在
     # 夹角阈值 30 度
@@ -1063,33 +1020,6 @@ def filter_horizontal_bones(armature, breast_bones):
             filtered_bones.append(b)
 
     return filtered_bones
-
-
-def get_vertices_influenced_by_bones(obj, bone_names):
-    """
-    按骨骼权重将顶点分为两组：
-    - primary:  总权重 >  WEIGHT_THRESHOLD（主要受影响顶点）
-    - marginal: 总权重 在 (0, WEIGHT_THRESHOLD] 之间（轻微受影响顶点）
-    """
-    primary = []  # 权重显著的顶点
-    marginal = []  # 权重微小但非零的顶点
-
-    bone_name_set = set(bone_names)
-    vg_index_to_name = {i: vg.name for i, vg in enumerate(obj.vertex_groups)}
-
-    for v in obj.data.vertices:
-        total_weight = sum(
-            g.weight
-            for g in v.groups
-            if vg_index_to_name.get(g.group) in bone_name_set
-        )
-
-        if total_weight > WEIGHT_THRESHOLD:
-            primary.append(v)
-        elif total_weight > 0:  # 隐含 total_weight <= WEIGHT_THRESHOLD
-            marginal.append(v)
-
-    return primary, marginal
 
 
 def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):

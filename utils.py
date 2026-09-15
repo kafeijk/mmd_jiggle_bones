@@ -110,8 +110,10 @@ CUP_LIST = [
 # cup值到索引的映射
 CUP_INDEX_MAP = {v: i for i, (k, v) in enumerate(CUP_LIST)}
 
+
 def get_cup_index(value):
     return CUP_INDEX_MAP.get(value, -1)
+
 
 # 胸部尺码判定列表
 # 每次递增2.5。
@@ -146,21 +148,24 @@ STANDARD_CUP_LIST = [
     (float("inf"), None),
 ]
 # cup值到索引的映射
-STANDARD_CUP_INDEX_MAP= {v: i for i, (k, v) in enumerate(STANDARD_CUP_LIST)}
+STANDARD_CUP_INDEX_MAP = {v: i for i, (k, v) in enumerate(STANDARD_CUP_LIST)}
 
 # 最大环数量
 MAX_RING_COUNT = 10
 # 最大搜索次数
 MAX_SEARCH_COUNT = 100000
 
+
 def get_standard_cup_index(value):
     return CUP_INDEX_MAP.get(value, -1)
+
 
 # 修正乳首时，顶点关联面的角度超出何种范围时判定为有问题
 LINKED_FACES_THRESHOLD = math.radians(130)  # 100度仍不保守，调整至120度，如雷电将军 调整至130度，如苔丝_绮幻
 
 # 模型在MMD与Blender之间的默认缩放值
 MODEL_SCALE = 0.08
+
 
 def find_pmx_root():
     """寻找pmx对应空物体"""
@@ -637,3 +642,179 @@ def format_cm(value, decimals=2, unit=True):
 
     result = f"{value * 100:.{decimals}f}"
     return f"{result} cm" if unit else result
+
+
+def trans_vg(obj, source_vg_name, target_vg_name, factor=1.0, remove_source=True):
+    """将顶点权重从源顶点组传递到目标顶点组"""
+    deselect_all_objects()
+    select_and_activate(obj)
+    vgs = obj.vertex_groups
+
+    if source_vg_name == target_vg_name:
+        return
+    # 源顶点组不存在则跳过
+    if source_vg_name not in vgs:
+        return
+    # 目标顶点组不存在则新建
+    if target_vg_name not in vgs:
+        obj.vertex_groups.new(name=target_vg_name)
+
+    source_vg = vgs[source_vg_name]
+    target_vg = vgs[target_vg_name]
+    source_vg_index = source_vg.index
+    target_vg_index = target_vg.index
+
+    for vert in obj.data.vertices:
+        v_index = vert.index
+
+        # 获取源顶点组权重
+        src_weight = 0.0
+        for g in vert.groups:
+            if g.group == source_vg_index:
+                src_weight = g.weight
+                break
+
+        if src_weight > 0:
+            # 计算传递权重
+            transfer_weight = src_weight * factor
+
+            # 获取目标顶点组当前权重
+            tgt_weight = 0.0
+            for g in vert.groups:
+                if g.group == target_vg_index:
+                    tgt_weight = g.weight
+                    break
+
+            # 将传递权重添加到目标顶点组
+            target_vg.add([v_index], tgt_weight + transfer_weight, 'REPLACE')
+
+            # 处理源顶点组权重
+            if remove_source:
+                # 完全转移，移除源权重
+                source_vg.remove([v_index])
+            else:
+                # 按 factor 减少源权重
+                source_vg.add([v_index], src_weight * (1 - factor), 'REPLACE')
+
+
+def remap_breast_weights(obj):
+    """当胸部权重最大值不足1时，重映射胸部权重 如果顶点同时受到BREAST_BL_NAME_L和BREAST_BL_NAME_R影响，那么处理顺序对该点来说无太大影响，此处不是重点"""
+    # 获取胸部顶点
+    primary, marginal = get_vertices_influenced_by_bones(obj, [BREAST_BL_NAME_L, BREAST_BL_NAME_R])
+    breast_v = primary + marginal
+
+    # 获取左右胸部顶点组最大权重
+    max_weight_l = 0.0
+    max_weight_r = 0.0
+    for v in breast_v:
+        for g in v.groups:
+            group_name = obj.vertex_groups[g.group].name
+            if group_name == BREAST_BL_NAME_L:
+                max_weight_l = max(max_weight_l, g.weight)
+            elif group_name == BREAST_BL_NAME_R:
+                max_weight_r = max(max_weight_r, g.weight)
+
+    # 左胸或右胸最大权重不足1，进行重映射
+    do_remap_breast_weights(obj, breast_v, max_weight_l, max_weight_r)
+
+
+def get_vertices_influenced_by_bones(obj, bone_names):
+    """
+    按骨骼权重将顶点分为两组：
+    - primary:  总权重 >  WEIGHT_THRESHOLD（主要受影响顶点）
+    - marginal: 总权重 在 (0, WEIGHT_THRESHOLD] 之间（轻微受影响顶点）
+    """
+    primary = []  # 权重显著的顶点
+    marginal = []  # 权重微小但非零的顶点
+
+    bone_name_set = set(bone_names)
+    vg_index_to_name = {i: vg.name for i, vg in enumerate(obj.vertex_groups)}
+
+    for v in obj.data.vertices:
+        total_weight = sum(
+            g.weight
+            for g in v.groups
+            if vg_index_to_name.get(g.group) in bone_name_set
+        )
+
+        if total_weight > WEIGHT_THRESHOLD:
+            primary.append(v)
+        elif total_weight > 0:  # 隐含 total_weight <= WEIGHT_THRESHOLD
+            marginal.append(v)
+
+    return primary, marginal
+
+
+def do_remap_breast_weights(obj, vertices, max_weight_l, max_weight_r):
+    """一次遍历，同时重映射胸.L和胸.R顶点组，防止一个顶点受两个顶点组影响时，因处理的先后顺序，读取到修改后的值。"""
+
+    vg_l = obj.vertex_groups.get(BREAST_BL_NAME_L)
+    vg_r = obj.vertex_groups.get(BREAST_BL_NAME_R)
+
+    if vg_l is None or vg_r is None:
+        return
+
+    index_l = vg_l.index
+    index_r = vg_r.index
+
+    for v in vertices:
+
+        weight_l = 0.0
+        weight_r = 0.0
+
+        other_groups = []
+
+        # 读取原始权重
+        for g in v.groups:
+
+            group = obj.vertex_groups[g.group]
+
+            if g.group == index_l:
+                weight_l = g.weight
+                continue
+
+            if g.group == index_r:
+                weight_r = g.weight
+                continue
+
+            if group.lock_weight:
+                continue
+
+            other_groups.append((group, g.weight))
+
+        new_weight_l = weight_l
+        new_weight_r = weight_r
+
+        # 左胸映射
+        if 0 < max_weight_l < 1.0 and weight_l > 0:
+            new_weight_l = min(weight_l / max_weight_l, 1.0)
+
+        # 右胸映射
+        if 0 < max_weight_r < 1.0 and weight_r > 0:
+            new_weight_r = min(weight_r / max_weight_r, 1.0)
+
+        increase = (
+                new_weight_l - weight_l +
+                new_weight_r - weight_r
+        )
+
+        if increase <= 0:
+            continue
+
+        other_total = sum(weight for _, weight in other_groups)
+
+        # 从其它权重中扣除
+        if other_total > 0:
+
+            for vg, weight in other_groups:
+                ratio = weight / other_total
+                new_weight = max(weight - increase * ratio, 0)
+
+                vg.add([v.index], new_weight, 'REPLACE')
+
+        # 最后一次性写入左右胸
+        if new_weight_l != weight_l:
+            vg_l.add([v.index], new_weight_l, 'REPLACE')
+
+        if new_weight_r != weight_r:
+            vg_r.add([v.index], new_weight_r, 'REPLACE')

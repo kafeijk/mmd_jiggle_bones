@@ -507,7 +507,6 @@ def further_process_for_base_body(source_objs, b_names, result, index):
         return
 
 
-
 def get_and_check_rings(tmp_obj, nipple_z, under_z, max_ring_count=MAX_RING_COUNT):
     """检测环数过多或缺失"""
     upper_rings = get_rings_at_z(tmp_obj, nipple_z, max_ring_count=max_ring_count)
@@ -833,6 +832,7 @@ def get_under_ring(obj, z_target, b_names):
 
     return set(min_ring)
 
+
 def get_ring_bone_influence(obj, ring, b_names):
     """计算一个环平均胸部骨骼影响权重"""
 
@@ -862,6 +862,7 @@ def get_ring_bone_influence(obj, ring, b_names):
         total_weight += weight
 
     return total_weight / len(ring)
+
 
 def deselect_verts(obj):
     for v in obj.data.vertices:
@@ -1086,6 +1087,90 @@ def crop_mesh_by_z(obj, z_min, z_max):
     bm.free()
 
 
+def process_source_objs(data):
+    """
+    1. 复制对象并进行切割，减少后续处理耗时。
+    2. 重映射胸部权重，提高胸部边缘区域权重，从而提升尺码选择时的准确率。
+    """
+    # 获取源数据
+    source_objs = data["source_objs"]
+    b_names_l = data["b_names_l"]
+    b_names_r = data["b_names_r"]
+
+    # 创建拷贝数据
+    tmp_col = get_collection(TMP_ANALYSIS_COLLECTION_NAME)
+    copied_source_objs = []
+    for obj in source_objs:
+        copied_obj = copy_obj(obj, tmp_col)
+        tmp_col.objects.unlink(copied_obj)
+        copied_obj.parent = None
+        copied_source_objs.append(copied_obj)
+
+    # 获取胸部顶点的 max_z 和 min_z
+    vg_names = b_names_l + b_names_r
+    max_z, min_z = get_max_min_z(copied_source_objs, vg_names)
+
+    # 切割 copied_source_objs，保留 0.01m 的冗余范围
+    for obj in copied_source_objs:
+        crop_mesh_by_z(obj, min_z - 0.01, max_z + 0.01)
+
+    # 移除顶点数为0的对象
+    for obj in copied_source_objs[:]:
+        if len(obj.data.vertices) == 0:
+            bpy.data.objects.remove(obj, do_unlink=True)
+            copied_source_objs.remove(obj)
+
+    # 将胸部权重集中到胸.L和胸.R
+    for obj in copied_source_objs:
+        for name_l in b_names_l:
+            trans_vg(obj, name_l, BREAST_BL_NAME_L)
+        for name_r in b_names_r:
+            trans_vg(obj, name_r, BREAST_BL_NAME_R)
+
+    # 重映射胸部权重
+    for obj in copied_source_objs:
+        remap_breast_weights(obj)
+
+    # 重设data参数
+    b_names = [BREAST_BL_NAME_L, BREAST_BL_NAME_R]
+    b_names_l = [BREAST_BL_NAME_L]
+    b_names_r = [BREAST_BL_NAME_R]
+    copied_obj_vgs_map = get_obj_vgs_map(copied_source_objs, b_names_l)
+    data["b_names"] = b_names
+    data["b_names_l"] = b_names_l
+    data["b_names_r"] = b_names_r
+    data["copied_source_objs"] = copied_source_objs
+    data["copied_obj_vgs_map"] = copied_obj_vgs_map
+
+
+def get_max_min_z(copied_source_objs, vg_names):
+    """获取指定顶点组顶点的 max_z 和 min_z"""
+
+    max_z = float("-inf")
+    min_z = float("inf")
+
+    for obj in copied_source_objs:
+        mesh = obj.data
+
+        # 获取目标顶点组索引
+        vg_indices = {
+            obj.vertex_groups[name].index
+            for name in vg_names
+            if obj.vertex_groups.get(name)
+        }
+
+        if not vg_indices:
+            continue
+
+        for v in mesh.vertices:
+            if any(g.group in vg_indices for g in v.groups):
+                z = v.co.z
+                min_z = min(min_z, z)
+                max_z = max(max_z, z)
+
+    return max_z, min_z
+
+
 class AnalysisOperator(bpy.types.Operator):
     bl_idname = "mmd_jiggle_tools.analysis"  # 引用时的唯一标识符
     bl_label = "执行"  # 显示名称（F3搜索界面，不过貌似需要注册，和panel中显示的内容区别开）
@@ -1153,6 +1238,7 @@ class AnalysisOperator(bpy.types.Operator):
         # 预处理
         self.obj_visibility_map = preprocess(self.active_object, self.data["source_objs"])
 
+        self.initialized = False
         self.thresholds = [0.25, 0.2, 0.15, 0.1, 0.05, 0]
         self.analysis_index = 0
         self.further_index = 0
@@ -1161,7 +1247,7 @@ class AnalysisOperator(bpy.types.Operator):
         # 确保Blender有足够时间更新进度条所在界面（由于进度条面板首次显示时会新增UI区域，需要等待区域完全展开）
         self.flush_count = 0
 
-        self.update_progress(props)
+        self.update_progress(props, force=True)
         props.is_processing = True
         # 防止页面变化
         restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
@@ -1169,7 +1255,6 @@ class AnalysisOperator(bpy.types.Operator):
         self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
-
 
     def modal(self, context, event):
         # 忽略用户的操作，仅处理TIMER事件，
@@ -1181,13 +1266,27 @@ class AnalysisOperator(bpy.types.Operator):
             self.flush_count += 1
             return {'RUNNING_MODAL'}
 
+        # 复制对象并进行切割，减少后续处理耗时
+        # 重映射胸部权重，提高胸部边缘区域权重，从而提升尺码选择时的准确率
+        if not self.initialized:
+            process_source_objs(self.data)
+            self.initialized = True
+            # 每次执行后，隐藏临时集合并恢复对象状态防止页面变化
+            tmp_col = get_collection(TMP_ANALYSIS_COLLECTION_NAME)
+            context.scene.collection.children.unlink(tmp_col)
+            restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+            # 更新进度
+            self.update_progress(context.scene.mmd_jiggle_tools_analysis)
+            return {'RUNNING_MODAL'}
+
         scene = context.scene
         props = scene.mmd_jiggle_tools_analysis
         analysis_type = props.type
         remove_tmp = props.remove_tmp
 
         source_objs = self.data["source_objs"]
-        obj_vgs_map = self.data["obj_vgs_map"]
+        copied_source_objs = self.data["copied_source_objs"]
+        copied_obj_vgs_map = self.data["copied_obj_vgs_map"]
         b_names = self.data["b_names"]
 
         if not self.all_done:
@@ -1199,7 +1298,7 @@ class AnalysisOperator(bpy.types.Operator):
             if analysis_type == "DEFAULT":
                 if self.analysis_index < len(self.thresholds):
                     threshold = self.thresholds[self.analysis_index]
-                    result = do_analysis(obj_vgs_map, threshold, self.analysis_index, analysis_type)
+                    result = do_analysis(copied_obj_vgs_map, threshold, self.analysis_index, analysis_type)
                     self.results.append(result)
                     self.analysis_index += 1
                     self.update_progress(props)
@@ -1208,13 +1307,13 @@ class AnalysisOperator(bpy.types.Operator):
             else:
                 if self.analysis_index < len(self.thresholds):
                     threshold = self.thresholds[self.analysis_index]
-                    result = do_analysis(obj_vgs_map, threshold, self.analysis_index,analysis_type)
+                    result = do_analysis(copied_obj_vgs_map, threshold, self.analysis_index, analysis_type)
                     self.results.append(result)
                     self.analysis_index += 1
                     self.update_progress(props)
                 elif self.further_index < len(self.thresholds):
                     result = self.results[self.further_index]
-                    further_process_for_base_body(source_objs, b_names, result, self.further_index)
+                    further_process_for_base_body(copied_source_objs, b_names, result, self.further_index)
                     self.further_index += 1
                     self.update_progress(props)
                 else:
@@ -1232,7 +1331,7 @@ class AnalysisOperator(bpy.types.Operator):
 
             # 若results全部异常，则直接拦截。
             if all(r.status != AnalysisStatus.OK for r in results):
-                remove_tmp_obj(results, remove_tmp, analysis_type)
+                remove_tmp_obj(results, remove_tmp, analysis_type, copied_source_objs)
                 restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
                 bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
                 msg = build_all_failed_msg(results)
@@ -1249,7 +1348,7 @@ class AnalysisOperator(bpy.types.Operator):
             select_verts(source_objs, [nipple_co, under_co])
 
             # 根据flag删除临时对象
-            remove_tmp_obj(results, remove_tmp, analysis_type)
+            remove_tmp_obj(results, remove_tmp, analysis_type, copied_source_objs)
 
             # 设置Joint参数到插件面板
             set_joint_param(context, nipple_co, under_co, result)
@@ -1266,9 +1365,17 @@ class AnalysisOperator(bpy.types.Operator):
 
             return {'FINISHED'}
 
-
-    def update_progress(self, props):
+    def update_progress(self, props, force=False):
         """更新进度"""
+        blender_version = bpy.app.version
+
+        # 初始化时，随便赋予个起始值
+        if force:
+            props.progress = 0.05
+            if blender_version < (4, 0, 0):
+                props.progress_message = f"进度 {props.progress:.2%}"
+            return
+
         count = len(self.thresholds)
 
         if props.type == "DEFAULT":
@@ -1287,11 +1394,7 @@ class AnalysisOperator(bpy.types.Operator):
         if not self.all_done and props.progress == 1:
             props.progress = 0.9999
 
-        blender_version = bpy.app.version
-
-        if blender_version >= (4, 0, 0):
-            pass
-        else:
+        if blender_version < (4, 0, 0):
             props.progress_message = f"进度 {props.progress:.2%}"
 
 
@@ -1377,7 +1480,7 @@ def build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inne
     return msg
 
 
-def remove_tmp_obj(results, remove_tmp, analysis_type):
+def remove_tmp_obj(results, remove_tmp, analysis_type, copied_source_objs):
     if remove_tmp:
         for r in results:
             tmp_obj = r.tmp_obj
@@ -1399,6 +1502,10 @@ def remove_tmp_obj(results, remove_tmp, analysis_type):
         tmp_col = get_collection(TMP_ANALYSIS_COLLECTION_NAME)
         if tmp_col.name not in bpy.context.scene.collection.children:
             bpy.context.scene.collection.children.link(tmp_col)
+
+    for obj in copied_source_objs:
+        bpy.data.objects.remove(obj, do_unlink=True)
+
     # 清理未使用数据，防止对执行流程造成影响，防止工程体积过大
     bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
 
