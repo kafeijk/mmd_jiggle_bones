@@ -1099,12 +1099,23 @@ def process_source_objs(data):
 
     # 创建拷贝数据
     tmp_col = get_collection(TMP_ANALYSIS_COLLECTION_NAME)
-    copied_source_objs = []
+    tmp_objs = []
     for obj in source_objs:
-        copied_obj = copy_obj(obj, tmp_col)
-        tmp_col.objects.unlink(copied_obj)
-        copied_obj.parent = None
-        copied_source_objs.append(copied_obj)
+        tmp_obj = copy_obj(obj, tmp_col)
+        tmp_obj.parent = None
+        tmp_objs.append(tmp_obj)
+
+    # 提前合并网格，避免因合并时机不同导致结果不一致
+    deselect_all_objects()
+    if len(tmp_objs) > 1:
+        for tmp_obj in tmp_objs:
+            select_and_activate(tmp_obj)
+        bpy.ops.object.join()
+    else:
+        select_and_activate(tmp_objs[0])
+    copied_source_obj = bpy.context.view_layer.objects.active
+    copied_source_objs = [copied_source_obj]
+    tmp_col.objects.unlink(copied_source_obj)
 
     # 获取胸部顶点的 max_z 和 min_z
     vg_names = b_names_l + b_names_r
