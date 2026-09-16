@@ -2273,16 +2273,35 @@ def batch_do_analysis(obj_vgs_map, analysis_type):
 
 def filter_results(results):
     """从多次执行的结果中，筛选出最合适的那个结果"""
-    filtered_results = [r for r in results if r.status == AnalysisStatus.OK and r.cup is not None]
-    filtered_results.sort(key=lambda r: r.threshold, reverse=True)
-    lower_bound_index = filtered_results[0].cup_index
-    # 过滤掉比初始尺码还低的结果
-    filtered_results = [r for r in filtered_results if r.cup_index >= lower_bound_index]
-
-    # 获取尺码列表，用于展示
+    # 从原始results中提取cups和cup_inners
     cups = [r.cup if r.cup else "" for r in results]
     cup_inners = [r.cup_inner if r.cup_inner else "" for r in results]
 
+    filtered_results = [r for r in results if r.status == AnalysisStatus.OK and r.cup is not None]
+    filtered_results.sort(key=lambda r: r.threshold, reverse=True)
+
+    # 如果存在连续4个相同的cup_index，直接返回
+    for i in range(len(filtered_results) - 3):
+        cup_index = filtered_results[i].cup_index
+
+        if all(filtered_results[i + j].cup_index == cup_index for j in range(1, 4)):
+            return filtered_results[i + 3], cups, cup_inners
+
+    # 移除后一个尺码低于前一个尺码的结果
+    if filtered_results:
+        valid_results = [filtered_results[0]]
+        last_cup_index = filtered_results[0].cup_index
+
+        for r in filtered_results[1:]:
+            if r.cup_index >= last_cup_index:
+                valid_results.append(r)
+                last_cup_index = r.cup_index
+
+        filtered_results = valid_results
+
+    lower_bound_index = filtered_results[0].cup_index
+
+    # 获取尺码列表，用于展示
     lower_count = 0
     lower_bound_next_index = None
     lower_count_plus_1 = 0
