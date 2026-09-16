@@ -793,15 +793,31 @@ def do_remap_breast_weights(obj, vertices, max_weight_l, max_weight_r):
         if 0 < max_weight_r < 1.0 and weight_r > 0:
             new_weight_r = min(weight_r / max_weight_r, 1.0)
 
-        increase = (
-                new_weight_l - weight_l +
-                new_weight_r - weight_r
-        )
-
+        increase_l = new_weight_l - weight_l
+        increase_r = new_weight_r - weight_r
+        increase = increase_l + increase_r
         if increase <= 0:
             continue
 
         other_total = sum(weight for _, weight in other_groups)
+
+        # 其它权重不足时，按比例缩小左右胸增加量，暂未发现此类案例
+        if increase > other_total:
+            if other_total > 0:
+                scale = other_total / increase
+
+                increase_l *= scale
+                increase_r *= scale
+
+                new_weight_l = weight_l + increase_l
+                new_weight_r = weight_r + increase_r
+
+                increase = other_total
+            else:
+                # 没有其它权重可以让渡，胸部保持原权重
+                new_weight_l = weight_l
+                new_weight_r = weight_r
+                increase = 0
 
         # 从其它权重中扣除
         if other_total > 0:
