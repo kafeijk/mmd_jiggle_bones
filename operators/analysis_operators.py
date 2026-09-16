@@ -22,7 +22,8 @@ class AnalysisStatus(Enum):
     BREAST_MESH_COMPLEX_NO_UNDER_BUST = (9, "胸部网格结构复杂！无法准确获取下胸围，请删除无关内容后重试。")
     BUST_DIFF_TOO_LARGE = (10, "胸部网格结构复杂！胸围差过大，请删除无关内容后重试。")
     BUST_DIFF_NEGATIVE = (11, "胸部网格结构复杂！胸围差为负值，请删除无关内容后重试。")
-    BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS = (12, "胸部网格结构复杂！存在重叠且法向相反的面，请删除无关内容后重试。")
+    BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS = (12,
+                                                        "胸部网格结构复杂！存在重叠且法向相反的面，请删除无关内容后重试。")
     BREAST_MESH_COMPLEX_TOO_MANY_UPPER_RINGS = (13, "胸部网格结构复杂，检测到异常数量的上胸围环。请删除无关内容后重试。")
     BREAST_MESH_COMPLEX_TOO_MANY_UNDER_RINGS = (14, "胸部网格结构复杂，检测到异常数量的下胸围环。请删除无关内容后重试。")
     BREAST_MESH_COMPLEX_NO_UPPER_RINGS = (15, "胸部网格结构复杂，未检测到上胸围环。请检查后重试。")
@@ -2280,14 +2281,12 @@ def filter_results(results):
     filtered_results = [r for r in results if r.status == AnalysisStatus.OK and r.cup is not None]
     filtered_results.sort(key=lambda r: r.threshold, reverse=True)
 
-    # 如果存在连续4个相同的cup_index，直接返回
-    for i in range(len(filtered_results) - 3):
-        cup_index = filtered_results[i].cup_index
+    # 如果存在连续4个相同的cup_index，则直接返回
+    ok, result = check_continuous_four(filtered_results)
+    if ok:
+        return result, cups, cup_inners
 
-        if all(filtered_results[i + j].cup_index == cup_index for j in range(1, 4)):
-            return filtered_results[i + 3], cups, cup_inners
-
-    # 移除后一个尺码低于前一个尺码的结果
+    # 若后一个尺码小于前一个尺码，则移除后一个尺码
     if filtered_results:
         valid_results = [filtered_results[0]]
         last_cup_index = filtered_results[0].cup_index
@@ -2298,6 +2297,10 @@ def filter_results(results):
                 last_cup_index = r.cup_index
 
         filtered_results = valid_results
+
+    ok, result = check_last_three(filtered_results)
+    if ok:
+        return result, cups, cup_inners
 
     lower_bound_index = filtered_results[0].cup_index
 
@@ -2329,6 +2332,71 @@ def filter_results(results):
         return filtered_results[lower_count - 1], cups, cup_inners
     else:
         return filtered_results[lower_count], cups, cup_inners
+
+
+def check_continuous_four(filtered_results):
+    """检查是否存在连续4个相同的cup_index"""
+    if len(filtered_results) < 4:
+        return False, None
+
+    for i in range(len(filtered_results) - 3):
+        cup_index = filtered_results[i].cup_index
+
+        if all(
+                filtered_results[i + j].cup_index == cup_index
+                for j in range(1, 4)
+        ):
+            return True, filtered_results[i + 3]
+
+    return False, None
+
+
+def check_last_three(filtered_results):
+    """
+    检查候选项末尾连续三个尺码是否满足判断规则。
+    借此来减少因胸部边缘权重较低而误判的概率（案例 Tda式初音ミク A ['AA', 'A', 'A', 'C', 'C', 'C']，此时应取C）
+    必须在“若后一个尺码小于前一个尺码，则移除后一个尺码”之后执行（案例 克莱妲 C ['C', 'C', '', 'AA', 'AA', 'AA']，此时应取C）
+    """
+    # 不足三个候选项，直接返回
+    if len(filtered_results) < 3:
+        return False, None
+
+    # 获取后三项
+    last_three = filtered_results[-3:]
+
+    # 后三个不相同则直接返回
+    if len({r.cup_index for r in last_three}) != 1:
+        return False, None
+
+    # 后三个相同，且仅有三个候选项
+    if len(filtered_results) == 3:
+        return True, filtered_results[-1]
+
+    last_cup_index = last_three[0].cup_index
+
+    # 获取前几项中，索引最大值
+    max_previous_index = max(r.cup_index for r in filtered_results[:-3])
+
+    # “后三项”与“前几项的最大值”之前不超过3（通常在正负1之内）（案例：幽兰黛尔_不灭星锚 D ['C', 'D', 'D', 'K', 'K', 'K']）
+    if abs(last_cup_index - max_previous_index) > 3:
+        return False, None
+
+    # 数量小于等于5，返回后三项中的最后一个，同时也是候选项中的最后一个
+    if len(filtered_results) <= 5:
+        return True, filtered_results[-1]
+
+    # 数量等于6
+    if len(filtered_results) == 6:
+        first_three = filtered_results[:3]
+
+        # 若前三个项不一致，则返回后三项中的最后一个，同时也是候选项中的最后一个
+        if len({r.cup_index for r in first_three}) != 1:
+            return True, filtered_results[-1]
+
+        # 若前三个一致，则返回前三项中的最后一个
+        return True, filtered_results[2]
+
+    return False, None
 
 
 def select_verts(objs, cos):
