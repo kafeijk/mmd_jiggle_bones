@@ -401,10 +401,12 @@ def set_joint_limits(joint_parent, props, result=None):
         # RGBA刚体依然保留了普通胸部刚体的结构，包括胸部骨骼、胸部刚体和胸部Joint，其余刚体与Joint仅作为辅助使用。
         # 也就是说，真正影响胸部骨骼运动的刚体是绑定到该骨骼的物理刚体，因此只需修改对应Joint的限定值即可实现抖动幅度的变化。
         # 另外，改变胸部权重会影响原本模型，导致其被修改后不适合继续作为其它流程的基模，而修改Joint限定值可以解决该问题
-        limit_lin_x_lower_mmd = -breast_x * 1.5 * MODEL_SCALE
-        limit_lin_x_upper_mmd = breast_x * 1.5 * MODEL_SCALE
-        limit_lin_y_lower_mmd = -breast_y * 1 * MODEL_SCALE
-        limit_lin_y_upper_mmd = breast_y * 1 * MODEL_SCALE
+        # 在舞蹈动作中，胸部通常会更频繁、更剧烈地进行上下运动。因此需要对上下方向进行更严格的限制，转而通过旋转来实现自然的摇晃效果。
+        # 左右和前后方向的运动通常没有那么明显，因此限制可以相对放宽一些，使胸部运动更加自然，同时避免出现过弹的情况。
+        limit_lin_x_lower_mmd = -breast_x * 2 * MODEL_SCALE
+        limit_lin_x_upper_mmd = breast_x * 2 * MODEL_SCALE
+        limit_lin_y_lower_mmd = -breast_y * 2 * MODEL_SCALE
+        limit_lin_y_upper_mmd = breast_y * 2 * MODEL_SCALE
         limit_lin_z_lower_mmd = -breast_z * 0.5 * MODEL_SCALE
         limit_lin_z_upper_mmd = breast_z * 0.5 * MODEL_SCALE
     else:
