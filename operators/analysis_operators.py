@@ -2346,7 +2346,8 @@ def check_continuous_four(filtered_results):
                 filtered_results[i + j].cup_index == cup_index
                 for j in range(1, 4)
         ):
-            return True, filtered_results[i + 3]
+            # 取较小的那个，避免深度接近但选择高度更大的结果
+            return True, filtered_results[i]
 
     return False, None
 
@@ -2368,9 +2369,9 @@ def check_last_three(filtered_results):
     if len({r.cup_index for r in last_three}) != 1:
         return False, None
 
-    # 后三个相同，且仅有三个候选项
+    # 后三项相同，且仅有三个候选项，返回后三项中的第一个，避免深度接近但选择高度更大的结果
     if len(filtered_results) == 3:
-        return True, filtered_results[-1]
+        return True, filtered_results[-3]
 
     last_cup_index = last_three[0].cup_index
 
@@ -2381,17 +2382,17 @@ def check_last_three(filtered_results):
     if abs(last_cup_index - max_previous_index) > 3:
         return False, None
 
-    # 数量小于等于5，返回后三项中的最后一个，同时也是候选项中的最后一个
+    # 数量小于等于5，返回后三项中的第一个，避免深度接近但选择高度更大的结果
     if len(filtered_results) <= 5:
-        return True, filtered_results[-1]
+        return True, filtered_results[-3]
 
     # 数量等于6
     if len(filtered_results) == 6:
         first_three = filtered_results[:3]
 
-        # 若前三个项不一致，则返回后三项中的最后一个，同时也是候选项中的最后一个
+        # 若前三个项不一致，则返回后三项中的第一个，避免深度接近但选择高度更大的结果
         if len({r.cup_index for r in first_three}) != 1:
-            return True, filtered_results[-1]
+            return True, filtered_results[-3]
 
         # 若前三个一致，则返回前三项中的最后一个
         return True, filtered_results[2]
