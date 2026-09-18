@@ -207,14 +207,14 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         default='breast.L,breast.R',
         update=lambda self, context: self.sync_extra(context),
     )
-    # 经测试，0.25可以覆盖到尺码Z
+    # max设为1，主要用于为显示胸部参数预留一定冗余空间
     breast_x: bpy.props.FloatProperty(
         name="单侧胸宽",
         subtype="DISTANCE",
         description="胸部所占宽度的一半，可影响到胸部的左右摇晃",
-        default=0.17,
+        default=0.125,
         min=0,
-        max=0.33,
+        max=1,
         precision=3,
         step=0.1,
     )
@@ -222,9 +222,9 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         name="胸部深度",
         subtype="DISTANCE",
         description="胸部前侧与胸部底部之间的水平距离，可影响到胸部的前后摇晃",
-        default=0.15,
+        default=0.075,
         min=0,
-        max=0.3,
+        max=1,
         precision=3,
         step=0.1,
     )
