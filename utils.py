@@ -834,3 +834,39 @@ def do_remap_breast_weights(obj, vertices, max_weight_l, max_weight_r):
 
         if new_weight_r != weight_r:
             vg_r.add([v.index], new_weight_r, 'REPLACE')
+
+
+def adjust_ang_limits(target, cup_index):
+    """根据胸部尺码调整角度限制"""
+
+    if cup_index is None:
+        return
+
+    def scale_limits(scale):
+        target.limit_ang_x_lower /= scale
+        target.limit_ang_x_upper /= scale
+        target.limit_ang_y_lower /= scale
+        target.limit_ang_y_upper /= scale
+        target.limit_ang_z_lower /= scale
+        target.limit_ang_z_upper /= scale
+
+    def set_min_limits(value):
+        limit = math.radians(value)
+        target.limit_ang_x_lower = limit
+        target.limit_ang_x_upper = limit
+        target.limit_ang_y_lower = limit
+        target.limit_ang_y_upper = limit
+        target.limit_ang_z_lower = limit
+        target.limit_ang_z_upper = limit
+
+    if cup_index <= get_cup_index("B"):
+        # 尺码B及以下，降低5倍
+        scale_limits(5)
+
+        if cup_index == get_cup_index("A"):
+            # 尺码A及以下，再降低5倍
+            scale_limits(5)
+
+        elif cup_index == get_cup_index("AA"):
+            # 尺码AA，限制到0.5度
+            set_min_limits(0.5)

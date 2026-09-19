@@ -385,9 +385,9 @@ def set_joint_limits(joint_parent, props, result=None):
         breast_z = None
 
         if mode == "DEFAULT":
-            breast_x = result.max_x
-            breast_y = result.under_co.y - result.nipple_co.y
-            breast_z = (result.nipple_co.z - result.under_co.z) * 2
+            breast_x = result.breast_x
+            breast_y = result.breast_y
+            breast_z = result.breast_z
 
             cup = result.cup
             cup_index = result.cup_index
@@ -438,36 +438,7 @@ def set_joint_limits(joint_parent, props, result=None):
             rbc.limit_ang_z_lower = props.limit_ang_z_lower
             rbc.limit_ang_z_upper = props.limit_ang_z_upper
         else:
-            if cup_index is not None:
-
-                def scale_limits(scale):
-                    rbc.limit_ang_x_lower /= scale
-                    rbc.limit_ang_x_upper /= scale
-                    rbc.limit_ang_y_lower /= scale
-                    rbc.limit_ang_y_upper /= scale
-                    rbc.limit_ang_z_lower /= scale
-                    rbc.limit_ang_z_upper /= scale
-
-                def set_min_limits(value):
-                    limit = math.radians(value)
-                    rbc.limit_ang_x_lower = limit
-                    rbc.limit_ang_x_upper = limit
-                    rbc.limit_ang_y_lower = limit
-                    rbc.limit_ang_y_upper = limit
-                    rbc.limit_ang_z_lower = limit
-                    rbc.limit_ang_z_upper = limit
-
-                if cup_index <= get_cup_index("B"):
-                    # B杯及以下，降低5倍
-                    scale_limits(5)
-
-                    if cup_index == get_cup_index("A"):
-                        # A杯及以下，再降低5倍
-                        scale_limits(5)
-
-                    elif cup_index == get_cup_index("AA"):
-                        # AA杯，限制到0.5度
-                        set_min_limits(0.5)
+            adjust_ang_limits(rbc, cup_index)
 
     return cup
 

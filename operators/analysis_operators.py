@@ -56,6 +56,10 @@ class AnalysisResult:
     under_bust: float | None = None
     bust_diff: float | None = None
 
+    breast_x: float | None = None
+    breast_y: float | None = None
+    breast_z: float | None = None
+
     tmp_obj: object | None = None
     tmp_obj_for_base_body: object | None = None
 
@@ -1354,7 +1358,6 @@ class AnalysisOperator(bpy.types.Operator):
             result, cups, cup_inners = filter_results(results)
             nipple_co = result.nipple_co
             under_co = result.under_co
-            cup = result.cup
 
             # 选中源对象中的对应顶点
             select_verts(source_objs, [nipple_co, under_co])
@@ -1363,7 +1366,7 @@ class AnalysisOperator(bpy.types.Operator):
             remove_tmp_obj(results, remove_tmp, analysis_type, copied_source_objs)
 
             # 设置Joint参数到插件面板
-            set_joint_param(context, nipple_co, under_co, result)
+            set_joint_param(context, result)
 
             # 恢复对象的显示状态与选择状态
             restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
@@ -1372,7 +1375,7 @@ class AnalysisOperator(bpy.types.Operator):
 
             # 构建显示消息
             total_time = time.time() - self.start_time
-            msg = build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups, total_time)
+            msg = build_msg(results, result, analysis_type, cups, cup_inners, total_time)
             self.report({'INFO'}, "\n".join(msg))
 
             return {'FINISHED'}
@@ -1430,41 +1433,43 @@ def build_all_failed_msg(results):
     return msg
 
 
-def set_joint_param(context, nipple_co, under_co, result):
+def set_joint_param(context, result):
     """设置Joint参数到插件面板"""
 
     settings = context.scene.mmd_jiggle_tools_set_rgba
 
     # 计算胸部尺寸
-    breast_x = result.max_x
-    breast_y = under_co.y - nipple_co.y
-    breast_z = (nipple_co.z - under_co.z) * 2
+    breast_x = result.breast_x
+    breast_y = result.breast_y
+    breast_z = result.breast_z
 
     mode = settings.jiggle_adjustment_mode
 
     if mode == 'CUSTOM_SIMPLIFY':
         settings.breast_x = breast_x
         settings.breast_y = breast_y
-        settings.breast_z = abs(breast_z)
+        settings.breast_z = breast_z
 
     elif mode == 'CUSTOM':
         settings.limit_lin_x_lower = -breast_x * 2
         settings.limit_lin_x_upper = breast_x * 2
 
-        settings.limit_lin_y_lower = -breast_y
-        settings.limit_lin_y_upper = breast_y
+        settings.limit_lin_y_lower = -breast_y * 2
+        settings.limit_lin_y_upper = breast_y * 2
 
-        settings.limit_lin_z_lower = -abs(breast_z) * 2
-        settings.limit_lin_z_upper = abs(breast_z) * 2
+        settings.limit_lin_z_lower = -breast_z * 0.5
+        settings.limit_lin_z_upper = breast_z * 0.5
+
+        adjust_ang_limits(settings, result.cup_index)
 
 
-def build_msg(results, result, analysis_type, nipple_co, under_co, cup, cup_inners, cups, total_time):
+def build_msg(results, result, analysis_type, cups, cup_inners, total_time):
     msg = []
-    msg.append(f"尺码: {cup}")
+    msg.append(f"尺码: {result.cup}")
     if analysis_type == "DEFAULT":
-        breast_x = result.max_x
-        breast_y = under_co.y - nipple_co.y
-        breast_z = (nipple_co.z - under_co.z) * 2
+        breast_x = result.breast_x
+        breast_y = result.breast_y
+        breast_z = result.breast_z
 
         msg.append(f"单侧胸宽: {format_cm(breast_x)}")
         msg.append(f"胸部深度: {format_cm(breast_y)}")
@@ -1527,20 +1532,12 @@ def safe(v):
 
 
 def fill_row(r):
-    nipple_co = r.nipple_co
-    under_co = r.under_co
-    breast_x = r.max_x
-    breast_y = None
-    breast_z = None
-    if under_co and nipple_co:
-        breast_y = under_co.y - nipple_co.y
-        breast_z = (nipple_co.z - under_co.z) * 2
     return (
         r.status.name,
         r.threshold,
-        format_cm(breast_x, unit=False),
-        format_cm(breast_y, unit=False),
-        format_cm(breast_z, unit=False),
+        format_cm(r.breast_x, unit=False),
+        format_cm(r.breast_y, unit=False),
+        format_cm(r.breast_z, unit=False),
         r.cup if r.cup else 'None',
         r.cup_inner if r.cup_inner else 'None',
     )
@@ -2156,6 +2153,10 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type):
 
     tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_{cup}"
 
+    breast_x = max_x
+    breast_y = lower_co.y - nipple_co.y
+    breast_z = abs(nipple_co.z - lower_co.z) * 2
+
     return AnalysisResult(
         status=AnalysisStatus.OK,
         threshold=threshold,
@@ -2163,6 +2164,9 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type):
         under_co=lower_co.copy(),
         inner_co=inner_co.copy() if inner_co else None,
         max_x=max_x,
+        breast_x=breast_x,
+        breast_y=breast_y,
+        breast_z=breast_z,
         cup=cup,
         cup_index=cup_index,
         cup_inner=cup_inner,
