@@ -1462,6 +1462,10 @@ def set_joint_param(context, result):
 
         adjust_ang_limits(settings, result.cup_index)
 
+        if settings.sensitivity != 1:
+            settings.limit_ang_x_sync = False
+            settings.limit_ang_x_lower = math.radians(0)
+
 
 def build_msg(results, result, analysis_type, cups, cup_inners, total_time):
     msg = []

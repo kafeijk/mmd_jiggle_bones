@@ -37,6 +37,9 @@ LIMB_RB_NAMES = ["右手首", "右手", "右ひじ", "右腕", "左手首", "左
 # 四肢 + 躯干 主体刚体碰撞群组  PE 1~16 MMD Tools 0~15
 LIMB_RB_GROUP = 13
 
+# 灵敏度设置涉及的刚体名称
+SENSITIVITY_RB_NAMES = ["左胸", "右胸", "左胸_後", "右胸_後"]
+
 RB_JOINT_PREFIX_REGEXP = re.compile(r'(?P<prefix>[0-9A-Z]{3}_)(?P<name>.*)')
 
 BREAST_BONE_PATTERN = re.compile(

@@ -246,6 +246,15 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         max=1.0,
     )
 
+    sensitivity: bpy.props.FloatProperty(
+        name="灵敏度",
+        description="胸部灵敏度，用于提高幅度较小动作下胸部的响应效果\n调整该值可能会导致开启物理演算后，胸部默认姿态出现向下偏转的情况\n如出现该问题，可将角度限制X的下限调整为0，以避免胸部向下偏转",
+        default=1,
+        min=1,
+        max=15,
+        update=lambda self, context: self.update_ang_x(context),
+    )
+
     progress_current: bpy.props.IntProperty(
         name="当前文件",
         default=0,
@@ -337,3 +346,10 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
 
         for name in target_props:
             setattr(struct, name, props[name].default)
+
+    def update_ang_x(self, context):
+        if self.jiggle_adjustment_mode in ("DEFAULT", "CUSTOM_SIMPLIFY"):
+            return
+        if self.sensitivity != 1:
+            self.limit_ang_x_sync = False
+            self.limit_ang_x_lower = math.radians(0)

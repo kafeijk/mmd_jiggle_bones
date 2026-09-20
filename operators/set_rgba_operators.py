@@ -34,6 +34,21 @@ def copy_rb(rb):
     return new_rb
 
 
+def set_sensitivity(rb_parent, props):
+    """
+    设置灵敏度，用于解决部分动作幅度较小时，胸部摇晃不明显的问题。
+    注意：灵敏度实际通过调整刚体质量实现，会导致胸部受重力影响产生向下偏转。使用时应引导用户将角度限制X的正向限制设置为0，或提前告知该潜在影响。
+    """
+    mode = props.jiggle_adjustment_mode
+    if mode in ["DEFAULT", "CUSTOM_SIMPLIFY"]:
+        return
+    for rb in rb_parent.children:
+        name = rb.mmd_rigid.name_j
+        if name not in SENSITIVITY_RB_NAMES:
+            continue
+        rb.rigid_body.mass = props.sensitivity
+
+
 class SetRgbaOperator(bpy.types.Operator):
     bl_idname = "mmd_jiggle_tools.set_rgba"
     bl_label = "Execute"
@@ -317,7 +332,10 @@ class SetRgbaOperator(bpy.types.Operator):
         if mode in ["DEFAULT", "CUSTOM_SIMPLIFY"]:
             remap_breast_weights(obj)
 
+        # 设置关节限制
         cup = set_joint_limits(joint_parent, props, result=result)
+        # 设置灵敏度
+        set_sensitivity(rb_parent, props)
 
         # 导出模型
         deselect_all_objects()

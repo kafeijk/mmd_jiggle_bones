@@ -82,6 +82,9 @@ class RGBAPanel(bpy.types.Panel):
                       emboss=True)
             row1.prop(props, "limit_ang_z_upper", text="")
 
+            row2 = breast_col.row(align=True)
+            row2.prop(props, "sensitivity")
+
         batch_box = col.box()
         batch_ui = batch_box.column()
         batch_ui.prop(batch, "directory")
