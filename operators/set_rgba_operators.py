@@ -225,10 +225,9 @@ class SetRgbaOperator(bpy.types.Operator):
         # 校验源模型是否存在名为“上半身2”的骨骼
         # 存在则代表该模型为符合标准的模型（次标准骨骼在标准骨骼的基础上构建）
         # 但部分模型存在上半身3的情况，用来控制呼吸的表现等。所以实际胸部的父级不一定为上半身2，也可能是上半身3，也就是“首”的父级
-        for bone_name in (UPPER_BODY2_NAME, NECK_NAME):
-            if bone_name not in armature.pose.bones:
-                clean_tmp_collection()
-                return name, "ERROR", f"源模型中未找到名称为“{bone_name}”的骨骼"
+        if NECK_NAME not in armature.pose.bones:
+            clean_tmp_collection()
+            return name, "ERROR", f"源模型中未找到名称为“{NECK_NAME}”的骨骼"
 
         # 部分模型（如武器模型）可能仅包含骨骼，未定义刚体和关节。
         # 但部分角色类型模型也可能缺少刚体/关节配置，导致rb_parent或joint_parent为空，进而影响后续处理流程。

@@ -20,7 +20,6 @@ BREAST_BL_NAME_R = "胸.R"
 BREAST_JP_NAME_L = "左胸"
 BREAST_JP_NAME_R = "右胸"
 UPPER_BODY_NAME = "上半身"
-UPPER_BODY2_NAME = "上半身2"
 NECK_NAME = "首"
 # RGBA胸部刚体名称
 RGBA_RB_NAMES = ['右胸_後', '右胸_回転', '右胸_前', '右胸_前後', '右胸',
