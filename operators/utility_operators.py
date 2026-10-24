@@ -1,4 +1,4 @@
-from ..utils import *
+import bpy
 
 
 class GetSelectedBoneNameOperator(bpy.types.Operator):
