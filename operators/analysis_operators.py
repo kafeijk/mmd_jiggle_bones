@@ -10,12 +10,15 @@ import bpy
 import bpy_extras.mesh_utils
 from mathutils import Vector
 
-from ..utils import (
+from ..constants import (
     BASEBODY_TMP_OBJ_NAME, BREAST_BL_NAME_L, BREAST_BL_NAME_R, CUP_LIST,
     DEFAULT_TMP_OBJ_NAME, LINKED_FACES_THRESHOLD, MAX_RING_COUNT,
     MAX_SEARCH_COUNT, STANDARD_CUP_LIST, TMP_ANALYSIS_COLLECTION_NAME,
-    TMP_COLLECTION_NAME, adjust_ang_limits, bmesh_from_mesh, clean_temp_data,
-    copy_obj, deselect_all_objects, find_ancestor, find_objs, format_cm,
+    TMP_COLLECTION_NAME,
+)
+from ..utils import (
+    adjust_ang_limits, bmesh_from_mesh, clean_temp_data, copy_obj,
+    deselect_all_objects, find_ancestor, find_objs, format_cm,
     get_breast_bones_map, get_collection, get_standard_cup_index,
     purge_new_orphan_data, remap_breast_weights, restore_selection,
     select_and_activate, set_visibility, show_object, snapshot_data_blocks,
