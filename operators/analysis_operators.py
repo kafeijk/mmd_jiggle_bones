@@ -9,6 +9,7 @@ import bmesh
 import bpy
 import bpy_extras.mesh_utils
 from mathutils import Vector
+from mathutils.kdtree import KDTree
 
 from ..constants import (
     ADDON_ID_PREFIX,
@@ -813,21 +814,37 @@ def get_ring_edge_length(obj, ring_verts):
 
 def island_min_distance(island_a, island_b, near_dist=None):
     """
-    计算两个孤岛之间的最小顶点距离（暴力两两比较）（小于near_dist时提前退出）。
+    计算两个孤岛之间的最小顶点距离（KDTree 加速：为 island_b 建一次树，逐个查询最近点）
+    （小于near_dist时提前退出）。
+
+    KDTree = k-d tree（k 维空间索引树） 。
+    Blender 的`mathutils.kdtree.KDTree` 是三维版本，用来回答“ 离这个点最近的点是哪个/有多远 ”这类问题。
 
     返回：
       float —— 两孤岛中最近一对顶点的距离
     """
+    if not island_a or not island_b:
+        return float("inf")
+
+    # 预分配 KDTree：槽位数必须不小于实际插入的点数
+    tree = KDTree(len(island_b))
+    for index, vert in enumerate(island_b):
+        # 插入坐标，附带一个负载（这里存顶点在 island_b 中的下标）
+        tree.insert(vert.co, index)
+    # 建树：所有 insert 完成后必须调用一次，否则查询无意义
+    tree.balance()
+
     min_dist = float("inf")
-    for va in island_a:
-        for vb in island_b:
-            d = (va.co - vb.co).length
-            if d < min_dist:
-                min_dist = d
-                if near_dist is not None and min_dist < near_dist:
-                    return min_dist  # 已确认足够近，提前退出
-                if min_dist == 0.0:
-                    return 0.0  # 已经是最小可能值，提前退出
+    for vert in island_a:
+        # 查询树中离 vert.co 最近的点，返回 (最近点坐标, 负载, 距离)
+        _co, _index, dist = tree.find(vert.co)
+
+        if dist < min_dist:
+            min_dist = dist
+            if near_dist is not None and min_dist < near_dist:
+                return min_dist  # 已确认足够近，提前退出
+            if min_dist == 0.0:
+                return 0.0  # 已经是最小可能值，提前退出
     return min_dist
 
 
@@ -2916,8 +2933,6 @@ def process_bust_line(obj, ring):
                 si_fixed = True
 
             if si_fixed:
-                bm.to_mesh(mesh)
-                mesh.update()
                 bm.verts.ensure_lookup_table()
                 bm.edges.ensure_lookup_table()
                 continue  # 自交修完后重建链，再判凹点
@@ -2929,8 +2944,6 @@ def process_bust_line(obj, ring):
                 if values_to_remove:
                     # 更新verts范围，避免无法构成链
                     verts[:] = [v for v in verts if v not in values_to_remove]
-                bm.to_mesh(mesh)
-                mesh.update()
                 bm.verts.ensure_lookup_table()
                 bm.edges.ensure_lookup_table()
             else:
