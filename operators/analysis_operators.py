@@ -1731,11 +1731,18 @@ def preprocess(active_object, source_objs):
         select_and_activate(obj)
 
     # 切换为“点”选择模式并清空选择：后续 select_verts 只标出乳首/乳根两个点，
-    # 先清空可避免用户原有的顶点选择混进来
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_mode(type='VERT')
-    bpy.ops.mesh.select_all(action='DESELECT')
-    bpy.ops.object.mode_set(mode='OBJECT')
+    # 先清空可避免用户原有的顶点选择混进来。
+    # 直接写网格数据与工具设置，避免让全部网格进出编辑模式
+    for obj in source_objs:
+        mesh = obj.data
+        for elem in (mesh.vertices, mesh.edges, mesh.polygons):
+            count = len(elem)
+            if count:
+                elem.foreach_set("select", [False] * count)
+        mesh.update()
+
+    # https://docs.blender.org/api/current/bpy.types.ToolSettings.html#bpy.types.ToolSettings.mesh_select_mode
+    bpy.context.scene.tool_settings.mesh_select_mode = (True, False, False)
 
     # 恢复选择
     deselect_all_objects()
