@@ -1241,8 +1241,10 @@ class AnalysisOperator(bpy.types.Operator):
         props = scene.mmd_jiggle_tools_analysis
         self.start_time = time.time()
 
-        # 清理上一次执行时保留的临时对象，同时清理未使用数据，防止对执行流程造成影响，防止工程体积过大
+        # 清理上一次执行时保留的临时对象
         clean_collection([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
+        # 记录分析开始前的数据块，后续只清理本次新增的，避免误删用户数据
+        self.data_snapshot = snapshot_data_blocks()
 
         # 参数校验
         self.active_object = context.active_object
@@ -1303,6 +1305,8 @@ class AnalysisOperator(bpy.types.Operator):
             self.timer = None
 
         context.scene.mmd_jiggle_tools_analysis.is_processing = False
+        # 只清理本次新增的无用户数据块，避免影响用户已有数据
+        purge_new_orphan_data(getattr(self, "data_snapshot", None))
 
     def modal(self, context, event):
         # 允许用户通过 ESC 结束分析，避免流程无法退出
@@ -1391,15 +1395,13 @@ class AnalysisOperator(bpy.types.Operator):
             restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
             return {'RUNNING_MODAL'}
         else:
-            self._end(context)
-
             results = self.results
 
             # 若results全部异常，则直接拦截。
             if all(r.status != AnalysisStatus.OK for r in results):
                 remove_tmp_obj(results, remove_tmp, analysis_type, copied_source_objs)
                 restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
-                bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+                self._end(context)
                 msg = build_all_failed_msg(results)
                 self.report({'ERROR'}, msg)
                 return {'FINISHED'}
@@ -1420,8 +1422,7 @@ class AnalysisOperator(bpy.types.Operator):
 
             # 恢复对象的显示状态与选择状态
             restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
-            # 清理未使用数据，防止对执行流程造成影响，防止工程体积过大
-            bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+            self._end(context)
 
             # 构建显示消息
             total_time = time.time() - self.start_time
@@ -1560,25 +1561,26 @@ def remove_tmp_obj(results, remove_tmp, analysis_type, copied_source_objs):
                 bpy.data.objects.remove(tmp_obj, do_unlink=True)
             if analysis_type != "DEFAULT" and tmp_obj_for_base_body:
                 bpy.data.objects.remove(tmp_obj_for_base_body, do_unlink=True)
-        bpy.data.collections.remove(get_collection(TMP_COLLECTION_NAME))
-        bpy.data.collections.remove(get_collection(TMP_ANALYSIS_COLLECTION_NAME))
+        for name in (TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME):
+            collection = bpy.data.collections.get(name)
+            if collection is not None:
+                bpy.data.collections.remove(collection)
     else:
         if analysis_type != "DEFAULT":
             for r in results:
                 if r.tmp_obj:
                     bpy.data.objects.remove(r.tmp_obj, do_unlink=True)
-            bpy.data.collections.remove(get_collection(TMP_COLLECTION_NAME))
+            collection = bpy.data.collections.get(TMP_COLLECTION_NAME)
+            if collection is not None:
+                bpy.data.collections.remove(collection)
 
-        # 恢复临时集合显示
-        tmp_col = get_collection(TMP_ANALYSIS_COLLECTION_NAME)
-        if tmp_col.name not in bpy.context.scene.collection.children:
+        # 恢复临时集合显示（仅当集合存在时，避免创建空集合）
+        tmp_col = bpy.data.collections.get(TMP_ANALYSIS_COLLECTION_NAME)
+        if tmp_col is not None and tmp_col.name not in bpy.context.scene.collection.children:
             bpy.context.scene.collection.children.link(tmp_col)
 
     for obj in copied_source_objs:
         bpy.data.objects.remove(obj, do_unlink=True)
-
-    # 清理未使用数据，防止对执行流程造成影响，防止工程体积过大
-    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
 
 
 def safe(v):

@@ -308,6 +308,54 @@ def export_pmx(filepath: str) -> bool:
     ))
 
 
+# 清理时需要跟踪的数据块类型（MMD 导入会创建网格、材质、贴图、动作等）
+TRACKED_DATA_BLOCK_TYPES = (
+    "meshes",
+    "armatures",
+    "materials",
+    "textures",
+    "images",
+    "actions",
+    "node_groups",
+    "shape_keys",
+)
+
+
+def snapshot_data_blocks():
+    """记录当前已存在的数据块，供后续只清理本次新增的无用户数据"""
+    data_pointers = {}
+
+    for name in TRACKED_DATA_BLOCK_TYPES:
+        if not hasattr(bpy.data, name):
+            continue
+
+        data_blocks = getattr(bpy.data, name)
+        pointers = {block.as_pointer() for block in data_blocks}
+        data_pointers[name] = pointers
+
+    return data_pointers
+
+
+def purge_new_orphan_data(snapshot):
+    """只删除快照之后新增且无用户的数据块，避免误删用户已有数据"""
+    if not snapshot:
+        return
+
+    for name, before in snapshot.items():
+        blocks = getattr(bpy.data, name)
+        for block in list(blocks):
+            if block.as_pointer() in before:
+                continue
+            if block.users != 0:
+                continue
+            if getattr(block, "use_fake_user", False):
+                continue
+            try:
+                blocks.remove(block)
+            except Exception:
+                pass
+
+
 def clean_scene():
     # 删除由导入pmx生成的文本（防止找不到脚本）
     text_to_delete_list = []
@@ -336,9 +384,6 @@ def clean_scene():
             bpy.data.objects.remove(obj, do_unlink=True)
         # 删除临时集合
         bpy.data.collections.remove(collection)
-
-    # 清理递归未使用数据块
-    bpy.ops.outliner.orphans_purge(do_recursive=True)
 
 
 def remove_pmx(root):
@@ -601,9 +646,9 @@ def clean_collection(collections):
         collections = [collections]
 
     for item in collections:
-        # 获取集合对象
+        # 获取集合对象（仅查询，不存在时跳过，避免创建集合的副作用）
         if isinstance(item, str):
-            collection = get_collection(item)
+            collection = bpy.data.collections.get(item)
         else:
             collection = item
 
@@ -618,8 +663,6 @@ def clean_collection(collections):
             bpy.data.objects.remove(obj, do_unlink=True)
         # 删除集合
         bpy.data.collections.remove(collection)
-    # 清理未使用数据
-    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
 
 
 def restore_selection(selected_objects, active_object):

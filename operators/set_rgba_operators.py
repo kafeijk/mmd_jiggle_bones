@@ -79,6 +79,8 @@ class SetRgbaOperator(bpy.types.Operator):
         self.file_index = 0
         self.name_msg_map = OrderedDict()
         self.processing_file = False  # 控制UI刷新与主流程交替执行
+        # 记录批处理开始前的数据块，后续只清理本次新增的，避免误删用户数据
+        self.data_snapshot = snapshot_data_blocks()
         # 确保Blender有足够时间更新进度条所在界面（由于进度条面板首次显示时会新增UI区域，需要等待区域完全展开）
         self.flush_count = 0
 
@@ -245,7 +247,7 @@ class SetRgbaOperator(bpy.types.Operator):
             raise
         finally:
             try:
-                clean_tmp_collection()
+                clean_tmp_collection(getattr(self, "data_snapshot", None))
             except Exception:
                 traceback.print_exc()
 
@@ -1021,7 +1023,7 @@ def get_physical_bone(root):
     return bl_names
 
 
-def clean_tmp_collection():
+def clean_tmp_collection(snapshot=None):
     if TMP_COLLECTION_NAME in bpy.data.collections:
         collection = bpy.data.collections[TMP_COLLECTION_NAME]
         # 遍历集合中的所有对象
@@ -1049,8 +1051,9 @@ def clean_tmp_collection():
     for text_to_delete in text_to_delete_list:
         bpy.data.texts.remove(text_to_delete, do_unlink=True)
 
-    # 清理递归未使用数据块
-    bpy.ops.outliner.orphans_purge(do_recursive=True)
+    # 只清理本次新增的无用户数据块，避免影响用户已有数据
+    if snapshot is not None:
+        purge_new_orphan_data(snapshot)
 
 
 def apply_transform_to_objects(objects, trans):
