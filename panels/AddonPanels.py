@@ -4,6 +4,7 @@ from ..constants import PANEL_ID_PREFIX, TASK_ANALYSIS, TASK_SET_RGBA
 from ..operators.set_rgba_operators import SetRgbaOperator
 from ..operators.analysis_operators import AnalysisOperator
 from ..operators.utility_operators import GetSelectedBoneNameOperator
+from ..properties.set_rgba_properties import remember_collision_group
 from ..utils import get_addon_version, get_batch_progress
 
 _addon_version = None
@@ -30,6 +31,8 @@ class RGBAPanel(bpy.types.Panel):
         scene = context.scene
         props = scene.mmd_jiggle_tools_set_rgba
         batch = props.batch
+        # 记录修改前的碰撞组值，供 skip_13 判断用户调整方向（上/下调到 13 时取值不同）
+        remember_collision_group(props)
 
         layout = self.layout
         layout.use_property_split = True

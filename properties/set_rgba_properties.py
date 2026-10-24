@@ -8,6 +8,15 @@ from .batch_properties import BatchProperty
 # update 回调内写其它属性时用于短路，避免连锁回调（Blender 单线程，模块级布尔即可）
 _is_syncing = False
 
+# 记录每个属性组上一次的碰撞组值：update 回调只能拿到新值，
+# 需要在调到 13 时按用户调整方向取相邻值（12 → 14，14 → 12）
+_previous_collision_group = {}
+
+
+def remember_collision_group(props):
+    """记录当前碰撞组值（面板绘制时调用，保证首次修改时也能判断调整方向）"""
+    _previous_collision_group[props.as_pointer()] = props.collision_group_number
+
 
 @contextmanager
 def _sync_guard():
@@ -209,7 +218,8 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
 
     collision_group_number: bpy.props.IntProperty(
         name="碰撞组",
-        description="胸部碰撞组",
+        description="胸部刚体使用的碰撞组编号（0~15）\n"
+                    "13为手臂专用碰撞组，选择时会跳过该值",
         default=14,
         min=0,
         max=15,
@@ -276,10 +286,20 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
     def skip_13(self, context):
         if _is_syncing:
             return
-        # 13 是手臂的碰撞组，避免使用13
-        if self.collision_group_number == 13:
+
+        key = self.as_pointer()
+        current = self.collision_group_number
+        if current == 13:
+            # 13 是手臂专用碰撞组：按用户调整方向跳到相邻档位
+            # 12 → 13 继续向上取 14；14 → 13 继续向下取 12
+            previous = _previous_collision_group.get(
+                key, self.bl_rna.properties["collision_group_number"].default)
+            target = 14 if previous < 13 else 12
             with _sync_guard():
-                self.collision_group_number = 12
+                self.collision_group_number = target
+            current = target
+
+        _previous_collision_group[key] = current
 
     def sync_extra(self, context):
         if _is_syncing:
