@@ -1,9 +1,19 @@
-import addon_utils
 import bpy
 
 from ..operators.set_rgba_operators import SetRgbaOperator
 from ..operators.analysis_operators import AnalysisOperator
 from ..operators.utility_operators import GetSelectedBoneNameOperator
+from ..utils import get_addon_version
+
+_addon_version = None
+
+
+def _get_addon_version():
+    """获取并缓存插件版本号，避免每次重绘都扫描全部插件"""
+    global _addon_version
+    if _addon_version is None:
+        _addon_version = get_addon_version("mmd_jiggle_bones")
+    return _addon_version
 
 
 class RGBAPanel(bpy.types.Panel):
@@ -163,7 +173,7 @@ class AboutPanel(bpy.types.Panel):
         col = layout.column(align=True)
 
         # 版本号
-        col.label(
-            text='版本号：' + str([addon.bl_info.get('version', (-1, -1, -1)) for addon in addon_utils.modules() if
-                                  addon.bl_info['name'] == 'mmd_jiggle_bones'][0]))
+        version = _get_addon_version()
+        version_text = ".".join(str(v) for v in version) if version != (-1, -1, -1) else "未知"
+        col.label(text=f"版本号：{version_text}")
         col.label(text='作者：KafeiMMD')
