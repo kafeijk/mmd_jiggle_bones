@@ -90,13 +90,6 @@ class AnalysisResult:
     max_weight: float | None = None
 
 
-@dataclass
-class BatchAnalysisResult:
-    status: AnalysisStatus = AnalysisStatus.ERROR
-    msg: str = ""
-    results: list | None = None
-
-
 def restore_object_state(obj_visibility_map, selected_objects, active_object):
     """恢复对象的显示状态与选择状态"""
     for obj, visibility in obj_visibility_map.items():
@@ -547,30 +540,6 @@ def get_and_check_rings(tmp_obj, nipple_z, under_z, max_ring_count=MAX_RING_COUN
         return None, None, status
 
     return upper_rings, under_rings, None
-
-
-def get_sorted_edges(obj):
-    """按照边质心的 z、x、y 坐标排序"""
-
-    vertices = obj.data.vertices
-
-    edge_centers = [
-        (
-            edge,
-            (vertices[edge.vertices[0]].co + vertices[edge.vertices[1]].co) / 2
-        )
-        for edge in obj.data.edges
-    ]
-
-    edge_centers.sort(
-        key=lambda item: (
-            item[1].z,
-            item[1].x,
-            item[1].y,
-        )
-    )
-
-    return [edge for edge, _ in edge_centers]
 
 
 def get_edge_key(v0, v1):
@@ -1580,10 +1549,6 @@ def remove_tmp_obj(results, remove_tmp, analysis_type, copied_source_objs):
 
     for obj in copied_source_objs:
         bpy.data.objects.remove(obj, do_unlink=True)
-
-
-def safe(v):
-    return "None" if v is None else str(v)
 
 
 def fill_row(r):
@@ -2603,11 +2568,6 @@ def build_edge_cache(chain):
             if ov in seen_verts:  # 只缓存"链内边"（两端都在链上）
                 cache[frozenset((v, ov))] = e
     return cache
-
-
-def cached_find_edge(cache, v1, v2):
-    """在缓存中查找两顶点之间的边，找不到返回 None。"""
-    return cache.get(frozenset((v1, v2)))
 
 
 def cached_remove_edge(bm, cache, v1, v2):

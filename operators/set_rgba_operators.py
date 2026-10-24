@@ -537,12 +537,6 @@ def set_joint_limits(joint_parent, props, result=None):
     return cup
 
 
-def get_prop_default_value(struct, identifier):
-    for prop in struct.bl_rna.properties:
-        if prop.identifier == identifier:
-            return prop.default
-
-
 def get_rb_bone_rel_map(rb_parent):
     rbn_bone_map = {}
     rbn_rb_map = {}
@@ -1029,25 +1023,6 @@ def get_accessory_info(armature, breast_bones, breast_names, joint_parent, rb_pa
     return accessory_breast_rel_map, kept_joints
 
 
-def get_physical_bone(root):
-    """获取受物理影响的骨骼"""
-    rigidbody_parent = find_rigid_body_parent(root)
-    if rigidbody_parent is None:
-        return []
-    rigid_bodies = rigidbody_parent.children
-    # 受刚体物理影响的骨骼名称列表（blender名称）
-    bl_names = []
-    for rigidbody in rigid_bodies:
-        # 存在有刚体但没有关联骨骼的情况
-        if rigidbody.mmd_rigid.bone == '':
-            continue
-        # 0:骨骼 1:物理 2:物理+骨骼
-        if rigidbody.mmd_rigid.type not in ('1', '2'):
-            continue
-        bl_names.append(rigidbody.mmd_rigid.bone)
-    return bl_names
-
-
 def apply_transform_to_objects(objects, trans):
     """对一组对象应用变换（仅缩放）"""
     for obj in objects:
@@ -1143,10 +1118,6 @@ def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):
             bpy.data.objects.remove(joint, do_unlink=True)
 
     bpy.ops.object.mode_set(mode=original_mode)
-
-
-def format_factor(factor, decimals=2):
-    return f"{factor:.{decimals}f}".rstrip('0').rstrip('.')
 
 
 def set_index(obj, index):

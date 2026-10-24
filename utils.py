@@ -10,7 +10,7 @@ import bpy
 
 from .constants import (
     BREAST_BL_NAME_L, BREAST_BL_NAME_R, BREAST_BONE_PATTERN, CUP_INDEX_MAP,
-    CUP_LIST, MAX_RETRIES, STANDARD_CUP_LIST, TRACKED_DATA_BLOCK_TYPES,
+    MAX_RETRIES, STANDARD_CUP_INDEX_MAP, TRACKED_DATA_BLOCK_TYPES,
     WEIGHT_THRESHOLD,
 )
 
@@ -20,26 +20,7 @@ def get_cup_index(value):
 
 
 def get_standard_cup_index(value):
-    return CUP_INDEX_MAP.get(value, -1)
-
-
-def find_pmx_root():
-    """寻找pmx对应空物体"""
-    return next((obj for obj in bpy.context.scene.objects if obj.mmd_type == 'ROOT'), None)
-
-
-def find_pmx_root_with_child(child):
-    """根据child寻找pmx对应空物体"""
-    if not child:
-        return None
-
-    parent = child
-    while parent:
-        if parent.mmd_type == 'ROOT':
-            return parent
-        parent = parent.parent
-
-    return None
+    return STANDARD_CUP_INDEX_MAP.get(value, -1)
 
 
 def find_pmx_armature(pmx_root):
@@ -89,11 +70,6 @@ def deselect_all_objects():
 def show_object(obj):
     """显示物体。在视图取消禁用选择，在视图中取消隐藏，在视图中取消禁用，在渲染中取消禁用"""
     set_visibility(obj, (False, False, False, False))
-
-
-def hide_object(obj):
-    """显示物体。在视图取消禁用选择，在视图中取消隐藏，在视图中取消禁用，在渲染中取消禁用"""
-    set_visibility(obj, (True, True, True, True))
 
 
 def set_visibility(obj, visibility):
@@ -221,18 +197,6 @@ def purge_new_orphan_data(snapshot):
                 pass
 
 
-def remove_pmx(root):
-    deselect_all_objects()
-    select_and_activate(root)
-    do_remove_pmx(root)
-
-
-def do_remove_pmx(root):
-    for child in root.children:
-        do_remove_pmx(child)
-    bpy.data.objects.remove(root)
-
-
 def find_layer_collection_by_name(layer_collection, collection_name):
     """递归查询集合"""
     # 如果当前集合名称匹配
@@ -270,13 +234,6 @@ def get_addon_version(name):
         if addon.bl_info.get('name') == name:
             return addon.bl_info.get('version', (-1, -1, -1))
     return -1, -1, -1
-
-
-def get_mmd_tools_version():
-    v = get_addon_version("mmd_tools")
-    if v > (-1, -1, -1):
-        return v
-    return get_addon_version("MMD Tools")
 
 
 def is_mmd_tools_enabled():
@@ -345,31 +302,6 @@ def find_objs(root, obj_type='MESH'):
 
     recurse(root)
     return objs
-
-
-def get_breast_bones(root):
-    """
-    获取胸部骨骼列表
-
-    - 通过正则来识别模型中的胸部骨骼。
-    - 少女前线2的胸部骨骼单独处理。
-    """
-
-    armature = find_pmx_armature(root)
-    breast_bones = []
-    for b in armature.data.bones:
-        b_name = b.name
-        if is_dummy_bone(b_name):
-            continue
-        match = BREAST_BONE_PATTERN.match(b_name)
-        if match:
-            breast_bones.append(b)
-            continue
-        match = check_girlsfrontline_breast_bones_and_rbs(b_name)
-        if match:
-            breast_bones.append(b)
-
-    return breast_bones
 
 
 def get_breast_bones_map(armatures, extra_bones):

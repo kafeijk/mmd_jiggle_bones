@@ -55,10 +55,6 @@ BREAST_RB_PATTERN = re.compile(
     r'$'
 )
 PHYSICAL_FRAME_NAME = "物理"
-COLLISION_MAP = {
-    "DEFAULT": "默认",
-    "NO_COLLISION": "无碰撞",
-}
 
 # 胸部权重阈值
 WEIGHT_THRESHOLD = 0.25
