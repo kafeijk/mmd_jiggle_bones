@@ -1267,6 +1267,7 @@ class AnalysisOperator(bpy.types.Operator):
         if not self.initialized:
             process_source_objs(self.data)
             self.initialized = True
+            self.face_cache = collect_face_records(self.data["copied_obj_vgs_map"])
             # 每次执行后，隐藏临时集合并恢复对象状态防止页面变化
             tmp_col = get_collection(TMP_ANALYSIS_COLLECTION_NAME)
             context.scene.collection.children.unlink(tmp_col)
@@ -1294,7 +1295,8 @@ class AnalysisOperator(bpy.types.Operator):
             if analysis_type == "DEFAULT":
                 if self.analysis_index < len(self.thresholds):
                     threshold = self.thresholds[self.analysis_index]
-                    result = do_analysis(copied_obj_vgs_map, threshold, self.analysis_index, analysis_type)
+                    result = do_analysis(copied_obj_vgs_map, threshold, self.analysis_index, analysis_type,
+                                         face_cache=self.face_cache)
                     self.results.append(result)
                     self.analysis_index += 1
                     self.update_progress(props)
@@ -1303,7 +1305,8 @@ class AnalysisOperator(bpy.types.Operator):
             else:
                 if self.analysis_index < len(self.thresholds):
                     threshold = self.thresholds[self.analysis_index]
-                    result = do_analysis(copied_obj_vgs_map, threshold, self.analysis_index, analysis_type)
+                    result = do_analysis(copied_obj_vgs_map, threshold, self.analysis_index, analysis_type,
+                                         face_cache=self.face_cache)
                     self.results.append(result)
                     self.analysis_index += 1
                     self.update_progress(props)
@@ -1995,40 +1998,60 @@ def get_breast_cleavage(max_x, breast_verts, other_island_verts):
 
     return None, best_cleavage_vert
 
+def collect_face_records(obj_vgs_map):
+    """一次性收集网格面信息，供多档阈值复用（分析期间源网格不会被修改）。
+
+    返回 {obj: [(面顶点索引集合, 坐标键, 法向键), ...]}
+    """
+    records = {}
+    for obj in obj_vgs_map:
+        obj_records = []
+        with bmesh_from_mesh(obj.data) as bm:
+            bm.verts.ensure_lookup_table()
+            for face in bm.faces:
+                sorted_verts = sort_verts(face.verts)
+                face_key = tuple(get_co_key(v.co) for v in sorted_verts)
+                obj_records.append((
+                    frozenset(v.index for v in face.verts),
+                    face_key,
+                    get_co_key(face.normal),
+                ))
+        records[obj] = obj_records
+    return records
+
+
 @timeit
-def has_overlapping_faces_with_opposite_normals(obj_verts_map):
-    """检查网格物体是否存在重合且法向相反的面"""
+def has_overlapping_faces_with_opposite_normals(obj_verts_map, face_cache=None):
+    """检查网格物体是否存在重合且法向相反的面
+
+    face_cache 可由 collect_face_records 预先生成：多档阈值共用同一份面数据，
+    避免每档阈值都做一次 bmesh 转换和坐标键计算。
+    """
+    if face_cache is None:
+        face_cache = collect_face_records(obj_verts_map)
+
     source_faces = {}
 
     for obj, verts in obj_verts_map.items():
         vert_indices = {v.index for v in verts}
 
-        with bmesh_from_mesh(obj.data) as bm:
-            bm.verts.ensure_lookup_table()
+        for face_verts, face_key, normal_key in face_cache.get(obj, ()):
+            # 仅处理所有顶点都在指定 verts 中的面
+            if not face_verts <= vert_indices:
+                continue
 
-            for face in bm.faces:
-                # 仅处理所有顶点都在指定 verts 中的面
-                if not all(v.index in vert_indices for v in face.verts):
-                    continue
+            if face_key in source_faces:
+                old_normal_key = source_faces[face_key]
 
-                sorted_verts = sort_verts(face.verts)
-                face_key = tuple(get_co_key(v.co) for v in sorted_verts)
-
-                # 当前面的法向
-                normal_key = get_co_key(face.normal)
-
-                if face_key in source_faces:
-                    old_normal_key = source_faces[face_key]
-
-                    # 法向相反
-                    if old_normal_key == tuple(-v for v in normal_key):
-                        return True
-                else:
-                    source_faces[face_key] = normal_key
+                # 法向相反
+                if old_normal_key == tuple(-v for v in normal_key):
+                    return True
+            else:
+                source_faces[face_key] = normal_key
     return False
 
 
-def do_analysis(obj_vgs_map, threshold, index, analysis_type):
+def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None):
     """分析胸部尺寸"""
     # 网格对象 -> 胸部范围（高于权重阈值的顶点）
     obj_verts_map = {}
@@ -2055,7 +2078,7 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type):
     # 因此，这里仅在通用阶段记录 tag，在素体阶段进行拦截。
     # 这样可以检测出胸部区域存在的反向面问题，至于胸侧和后背区域，由于出现此类问题的概率较低，暂不进行处理。
     opposite_normals = False
-    if has_overlapping_faces_with_opposite_normals(obj_verts_map):
+    if has_overlapping_faces_with_opposite_normals(obj_verts_map, face_cache=face_cache):
         opposite_normals = True
 
     # 创建临时胸部对象
@@ -2242,9 +2265,12 @@ def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None, t
 def batch_do_analysis(obj_vgs_map, analysis_type):
     thresholds = ANALYSIS_THRESHOLDS
 
+    # 面数据只收集一次，各档阈值复用，避免每档都做 bmesh 转换与坐标键计算
+    face_cache = collect_face_records(obj_vgs_map)
+
     results = []
     for index, threshold in enumerate(thresholds):
-        result = do_analysis(obj_vgs_map, threshold, index, analysis_type)
+        result = do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=face_cache)
         if result.tmp_obj:
             result.tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_{result.cup if result.cup else 'None'}"
         results.append(result)
