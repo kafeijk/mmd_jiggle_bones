@@ -97,58 +97,56 @@ def remove_doubles_between_rings(tmp_obj, idx_rings_map, upper_rings):
     """
     仅合并不同环上距离过近的顶点，不影响其他顶点。
     """
-    bm = bmesh.new()
-    bm.from_mesh(tmp_obj.data)
-    bm.verts.ensure_lookup_table()
+    with bmesh_from_mesh(tmp_obj.data) as bm:
+        bm.verts.ensure_lookup_table()
 
-    # 获取所有环中顶点
-    tmp_verts = [
-        bm.verts[idx]
-        for ring in upper_rings
-        for idx in ring
-    ]
-    tmp_verts = sort_verts(tmp_verts)
+        # 获取所有环中顶点
+        tmp_verts = [
+            bm.verts[idx]
+            for ring in upper_rings
+            for idx in ring
+        ]
+        tmp_verts = sort_verts(tmp_verts)
 
-    verts_to_merge = set()
+        verts_to_merge = set()
 
-    # 两两比较
-    for i in range(len(tmp_verts)):
-        v1 = tmp_verts[i]
-        for j in range(i + 1, len(tmp_verts)):
-            v2 = tmp_verts[j]
+        # 两两比较
+        for i in range(len(tmp_verts)):
+            v1 = tmp_verts[i]
+            for j in range(i + 1, len(tmp_verts)):
+                v2 = tmp_verts[j]
 
-            # 跳过自身
-            if v1.index == v2.index:
-                continue
+                # 跳过自身
+                if v1.index == v2.index:
+                    continue
 
-            # 跳过同一个环
-            # 若两个顶点中的任意一个属于多个环，则不认为这两个顶点属于同一个环。（例如：崩坏3的琪亚娜_薪炎之律者）
-            r1 = idx_rings_map[v1.index]
-            r2 = idx_rings_map[v2.index]
-            if len(r1) == len(r2) == 1 and r1 == r2:
-                continue
+                # 跳过同一个环
+                # 若两个顶点中的任意一个属于多个环，则不认为这两个顶点属于同一个环。（例如：崩坏3的琪亚娜_薪炎之律者）
+                r1 = idx_rings_map[v1.index]
+                r2 = idx_rings_map[v2.index]
+                if len(r1) == len(r2) == 1 and r1 == r2:
+                    continue
 
-            # 距离判断
-            if (v1.co - v2.co).length <= 1e-3:
-                center = (v1.co + v2.co) * 0.5
-                v1.co = center
-                v2.co = center
-                verts_to_merge.add(v1)
-                verts_to_merge.add(v2)
+                # 距离判断
+                if (v1.co - v2.co).length <= 1e-3:
+                    center = (v1.co + v2.co) * 0.5
+                    v1.co = center
+                    v2.co = center
+                    verts_to_merge.add(v1)
+                    verts_to_merge.add(v2)
 
-    bm.to_mesh(tmp_obj.data)
+        bm.to_mesh(tmp_obj.data)
 
-    # 按距离合并
-    if verts_to_merge:
-        bmesh.ops.remove_doubles(
-            bm,
-            verts=list(verts_to_merge),
-            dist=1e-6,
-        )
+        # 按距离合并
+        if verts_to_merge:
+            bmesh.ops.remove_doubles(
+                bm,
+                verts=list(verts_to_merge),
+                dist=1e-6,
+            )
 
-    bm.to_mesh(tmp_obj.data)
-    tmp_obj.data.update()
-    bm.free()
+        bm.to_mesh(tmp_obj.data)
+        tmp_obj.data.update()
 
 
 def get_sorted_link_edges(vert):
@@ -299,23 +297,21 @@ def process_muti_rings(tmp_obj, loc_z, ref_co, rings):
 def remove_z_verts_except_ring(obj, upper_ring, loc_z):
     mesh = obj.data
 
-    bm = bmesh.new()
-    bm.from_mesh(mesh)
-    bm.verts.ensure_lookup_table()
+    with bmesh_from_mesh(mesh) as bm:
+        bm.verts.ensure_lookup_table()
 
-    keep_indices = set(upper_ring)
+        keep_indices = set(upper_ring)
 
-    remove_verts = [
-        v for v in bm.verts
-        if v.co.z == loc_z and v.index not in keep_indices
-    ]
+        remove_verts = [
+            v for v in bm.verts
+            if v.co.z == loc_z and v.index not in keep_indices
+        ]
 
-    if remove_verts:
-        bmesh.ops.delete(bm, geom=remove_verts, context='VERTS')
+        if remove_verts:
+            bmesh.ops.delete(bm, geom=remove_verts, context='VERTS')
 
-    bm.to_mesh(mesh)
-    mesh.update()
-    bm.free()
+        bm.to_mesh(mesh)
+        mesh.update()
 
 
 def further_process_for_base_body(source_objs, b_names, result, index):
@@ -355,14 +351,12 @@ def further_process_for_base_body(source_objs, b_names, result, index):
     under_z = result.under_co.z
 
     # 合并切割面的顶点，避免水平方向距离过近的顶点带来干扰
-    bm = bmesh.new()
-    bm.from_mesh(temp_mesh)
-    upper_verts = [v for v in bm.verts if v.co.z == nipple_z]
-    bmesh.ops.remove_doubles(bm, verts=upper_verts, dist=1e-5)
-    under_verts = [v for v in bm.verts if v.co.z == under_z]
-    bmesh.ops.remove_doubles(bm, verts=under_verts, dist=1e-5)
-    bm.to_mesh(temp_mesh)
-    bm.free()
+    with bmesh_from_mesh(temp_mesh) as bm:
+        upper_verts = [v for v in bm.verts if v.co.z == nipple_z]
+        bmesh.ops.remove_doubles(bm, verts=upper_verts, dist=1e-5)
+        under_verts = [v for v in bm.verts if v.co.z == under_z]
+        bmesh.ops.remove_doubles(bm, verts=under_verts, dist=1e-5)
+        bm.to_mesh(temp_mesh)
 
     # 保留 under_co、nipple_co 所在孤岛，删除其余孤岛
     # 此处因为是位置校验而非顶点校验，所以islands可能会多选，需要后续进一步处理
@@ -405,50 +399,46 @@ def further_process_for_base_body(source_objs, b_names, result, index):
     under_ring = get_under_ring(tmp_obj, under_z, b_names)
 
     # 删除圈外顶点
-    bm = bmesh.new()
-    bm.from_mesh(tmp_obj.data)
-    bm.verts.ensure_lookup_table()
-    keep = upper_ring | under_ring
-    verts_to_delete = [v for v in bm.verts if v.index not in keep]
-    bmesh.ops.delete(bm, geom=verts_to_delete, context='VERTS')
+    with bmesh_from_mesh(tmp_obj.data) as bm:
+        bm.verts.ensure_lookup_table()
+        keep = upper_ring | under_ring
+        verts_to_delete = [v for v in bm.verts if v.index not in keep]
+        bmesh.ops.delete(bm, geom=verts_to_delete, context='VERTS')
 
-    # 删除度数 <= 1 的顶点
-    bm.verts.ensure_lookup_table()
-    bm.edges.ensure_lookup_table()
-    loose_verts = [v for v in bm.verts if len(v.link_edges) <= 1]
-    while loose_verts:
-        bmesh.ops.delete(bm, geom=loose_verts, context='VERTS')
+        # 删除度数 <= 1 的顶点
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
         loose_verts = [v for v in bm.verts if len(v.link_edges) <= 1]
+        while loose_verts:
+            bmesh.ops.delete(bm, geom=loose_verts, context='VERTS')
+            loose_verts = [v for v in bm.verts if len(v.link_edges) <= 1]
 
-    bm.to_mesh(tmp_obj.data)
-    tmp_obj.data.update()
-    bm.free()
+        bm.to_mesh(tmp_obj.data)
+        tmp_obj.data.update()
 
     # 再次获取上圈和下圈
     upper_ring = get_upper_ring(tmp_obj, nipple_z)
     under_ring = get_under_ring(tmp_obj, under_z, b_names)
 
     # 删除 upper_ring_verts 与 under_ring_verts 之间的边
-    edges_to_delete = []
-    bm = bmesh.new()
-    bm.from_mesh(tmp_obj.data)
-    bm.verts.ensure_lookup_table()
-    for edge in bm.edges:
-        v1, v2 = edge.verts
-        # 一个顶点属于上圈，另一个顶点属于下圈
-        if (
-                (v1.index in upper_ring and v2.index in under_ring)
-                or
-                (v2.index in upper_ring and v1.index in under_ring)
-        ):
-            edges_to_delete.append(edge)
-    # 删除边
-    if edges_to_delete:
-        bmesh.ops.delete(bm, geom=edges_to_delete, context='EDGES')
+    with bmesh_from_mesh(tmp_obj.data) as bm:
+        bm.verts.ensure_lookup_table()
+        edges_to_delete = []
+        for edge in bm.edges:
+            v1, v2 = edge.verts
+            # 一个顶点属于上圈，另一个顶点属于下圈
+            if (
+                    (v1.index in upper_ring and v2.index in under_ring)
+                    or
+                    (v2.index in upper_ring and v1.index in under_ring)
+            ):
+                edges_to_delete.append(edge)
+        # 删除边
+        if edges_to_delete:
+            bmesh.ops.delete(bm, geom=edges_to_delete, context='EDGES')
 
-    bm.to_mesh(tmp_obj.data)
-    tmp_obj.data.update()
-    bm.free()
+        bm.to_mesh(tmp_obj.data)
+        tmp_obj.data.update()
 
     # 如果任一上下胸围顶点数小于2，则无法构成边，直接continue
     if len(upper_ring) < 2:
@@ -885,17 +875,15 @@ def deselect_verts(obj):
 
 def get_ring_edge_length(obj, ring_verts):
     """计算指定顶点圈的总边长"""
-    bm = bmesh.new()
-    bm.from_mesh(obj.data)
-    bm.verts.ensure_lookup_table()
-    bm.edges.ensure_lookup_table()
+    with bmesh_from_mesh(obj.data) as bm:
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
 
-    total = sum(
-        e.calc_length() for e in bm.edges
-        if e.verts[0].index in ring_verts and e.verts[1].index in ring_verts
-    )
-    bm.free()
-    return total
+        total = sum(
+            e.calc_length() for e in bm.edges
+            if e.verts[0].index in ring_verts and e.verts[1].index in ring_verts
+        )
+        return total
 
 
 def island_min_distance(island_a, island_b, near_dist=None):
@@ -932,11 +920,9 @@ def keep_islands_between_z(tmp_obj, under_co, nipple_co, near_dist=1e-3):
       nipple_co —— 用于定位"乳首"孤岛的参考坐标
       near_dist —— 判定"足够接近、应保留"的距离阈值，默认 1e-3
     """
-    bm = bmesh.new()
-    bm.from_mesh(tmp_obj.data)
-    bm.verts.ensure_lookup_table()
+    with bmesh_from_mesh(tmp_obj.data) as bm:
+        bm.verts.ensure_lookup_table()
 
-    try:
         min_vert = min(bm.verts, key=lambda v: (v.co - under_co).length_squared)
         max_vert = min(bm.verts, key=lambda v: (v.co - nipple_co).length_squared)
 
@@ -968,9 +954,6 @@ def keep_islands_between_z(tmp_obj, under_co, nipple_co, near_dist=1e-3):
 
         bm.to_mesh(tmp_obj.data)
         tmp_obj.data.update()
-
-    finally:
-        bm.free()
 
 
 def collect_island(start_vert, visited):
@@ -1064,36 +1047,33 @@ def crop_mesh_by_z(obj, z_min, z_max):
     """获取 z_min ~ z_max 之间的部分"""
     mesh = obj.data
 
-    bm = bmesh.new()
-    bm.from_mesh(mesh)
+    with bmesh_from_mesh(mesh) as bm:
+        geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
 
-    geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
+        # 删除 z > z_max
+        bmesh.ops.bisect_plane(
+            bm,
+            geom=geom,
+            plane_co=(0, 0, z_max),
+            plane_no=(0, 0, 1),
+            clear_outer=True,
+            clear_inner=False,
+        )
 
-    # 删除 z > z_max
-    bmesh.ops.bisect_plane(
-        bm,
-        geom=geom,
-        plane_co=(0, 0, z_max),
-        plane_no=(0, 0, 1),
-        clear_outer=True,
-        clear_inner=False,
-    )
+        geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
 
-    geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
+        # 删除 z < z_min
+        bmesh.ops.bisect_plane(
+            bm,
+            geom=geom,
+            plane_co=(0, 0, z_min),
+            plane_no=(0, 0, 1),
+            clear_outer=False,
+            clear_inner=True,
+        )
 
-    # 删除 z < z_min
-    bmesh.ops.bisect_plane(
-        bm,
-        geom=geom,
-        plane_co=(0, 0, z_min),
-        plane_no=(0, 0, 1),
-        clear_outer=False,
-        clear_inner=True,
-    )
-
-    bm.to_mesh(mesh)
-    mesh.update()
-    bm.free()
+        bm.to_mesh(mesh)
+        mesh.update()
 
 
 def process_source_objs(data):
@@ -1790,21 +1770,20 @@ def delete_unwanted_vertices(obj, keep_vertex_indices):
     """
 
     mesh = obj.data
-    bm = bmesh.new()
-    bm.from_mesh(mesh)
-    bm.verts.ensure_lookup_table()
 
-    keep_set = set(keep_vertex_indices)
+    with bmesh_from_mesh(mesh) as bm:
+        bm.verts.ensure_lookup_table()
 
-    # 选择要删除的顶点
-    delete_verts = [v for v in bm.verts if v.index not in keep_set]
+        keep_set = set(keep_vertex_indices)
 
-    # 删除顶点
-    bmesh.ops.delete(bm, geom=delete_verts, context='VERTS')
+        # 选择要删除的顶点
+        delete_verts = [v for v in bm.verts if v.index not in keep_set]
 
-    # 写回 mesh
-    bm.to_mesh(mesh)
-    bm.free()
+        # 删除顶点
+        bmesh.ops.delete(bm, geom=delete_verts, context='VERTS')
+
+        # 写回 mesh
+        bm.to_mesh(mesh)
 
     mesh.update()
 
@@ -2307,27 +2286,25 @@ def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None, t
         tmp_obj.active_shape_key_index = 0
         bpy.ops.object.shape_key_remove(all=True, apply_mix=True)
 
-    bm = bmesh.new()
-    bm.from_mesh(temp_mesh)
-    bm.verts.ensure_lookup_table()
+    with bmesh_from_mesh(temp_mesh) as bm:
+        bm.verts.ensure_lookup_table()
 
-    # 按距离合并顶点，防止松散块过多，提高胸部乳首、乳根定位的准确性
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001)
-    # 删除共享顶点的重合面，例如：3个顶点却构成了2个面，防止边界边的获取出现异常（符玄）
-    seen_faces = {}
-    faces_to_delete = []
-    for f in bm.faces:
-        # 用顶点索引的frozenset作为面的唯一标识
-        key = frozenset(v.index for v in f.verts)
-        if key in seen_faces:
-            faces_to_delete.append(f)
-        else:
-            seen_faces[key] = f
+        # 按距离合并顶点，防止松散块过多，提高胸部乳首、乳根定位的准确性
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001)
+        # 删除共享顶点的重合面，例如：3个顶点却构成了2个面，防止边界边的获取出现异常（符玄）
+        seen_faces = {}
+        faces_to_delete = []
+        for f in bm.faces:
+            # 用顶点索引的frozenset作为面的唯一标识
+            key = frozenset(v.index for v in f.verts)
+            if key in seen_faces:
+                faces_to_delete.append(f)
+            else:
+                seen_faces[key] = f
 
-    if faces_to_delete:
-        bmesh.ops.delete(bm, geom=faces_to_delete, context='FACES_ONLY')
-    bm.to_mesh(temp_mesh)
-    bm.free()
+        if faces_to_delete:
+            bmesh.ops.delete(bm, geom=faces_to_delete, context='FACES_ONLY')
+        bm.to_mesh(temp_mesh)
     return tmp_col, tmp_obj, temp_mesh
 
 
@@ -2960,54 +2937,52 @@ def process_bust_line(obj, ring):
     max_iter = 1000
     mesh = obj.data
 
-    bm = bmesh.new()
-    bm.from_mesh(mesh)
-    bm.verts.ensure_lookup_table()
-    bm.edges.ensure_lookup_table()
+    with bmesh_from_mesh(mesh) as bm:
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
 
-    verts = [bm.verts[i] for i in ring if bm.verts[i].link_edges]  # 从传入的索引集合取顶点
-    verts = sort_verts(verts)
-    for iteration in range(max_iter):
-        if len(verts) < 3:
-            break
-
-        chain = build_connected_chain(verts)
-        if len(chain) < 3:
-            break
-
-        cache = build_edge_cache(chain)
-
-        # --- 阶段一：消除所有自交（局部复查） ---
-        dirty = None  # 首次全扫
-        si_fixed = False  # 标记本轮是否修复了自交
-        for _ in range(max_iter):
-            cross = find_first_self_intersection(chain, dirty_segs=dirty)
-            if not cross:
+        verts = [bm.verts[i] for i in ring if bm.verts[i].link_edges]  # 从传入的索引集合取顶点
+        verts = sort_verts(verts)
+        for iteration in range(max_iter):
+            if len(verts) < 3:
                 break
-            dirty = fix_self_intersection(bm, chain, cross[0], cross[1], cache)
-            si_fixed = True
 
-        if si_fixed:
-            bm.to_mesh(mesh)
-            mesh.update()
-            bm.verts.ensure_lookup_table()
-            bm.edges.ensure_lookup_table()
-            continue  # 自交修完后重建链，再判凹点
+            chain = build_connected_chain(verts)
+            if len(chain) < 3:
+                break
 
-        # --- 阶段二：批量消除凹点 ---
-        dominant = chain_dominant_sign(chain)
-        changed, values_to_remove = fix_all_concave_verts(bm, chain, dominant, cache)
-        if changed:
-            if values_to_remove:
-                # 更新verts范围，避免无法构成链
-                verts[:] = [v for v in verts if v not in values_to_remove]
-            bm.to_mesh(mesh)
-            mesh.update()
-            bm.verts.ensure_lookup_table()
-            bm.edges.ensure_lookup_table()
-        else:
-            break
+            cache = build_edge_cache(chain)
 
-    bm.to_mesh(mesh)
-    mesh.update()
-    bm.free()
+            # --- 阶段一：消除所有自交（局部复查） ---
+            dirty = None  # 首次全扫
+            si_fixed = False  # 标记本轮是否修复了自交
+            for _ in range(max_iter):
+                cross = find_first_self_intersection(chain, dirty_segs=dirty)
+                if not cross:
+                    break
+                dirty = fix_self_intersection(bm, chain, cross[0], cross[1], cache)
+                si_fixed = True
+
+            if si_fixed:
+                bm.to_mesh(mesh)
+                mesh.update()
+                bm.verts.ensure_lookup_table()
+                bm.edges.ensure_lookup_table()
+                continue  # 自交修完后重建链，再判凹点
+
+            # --- 阶段二：批量消除凹点 ---
+            dominant = chain_dominant_sign(chain)
+            changed, values_to_remove = fix_all_concave_verts(bm, chain, dominant, cache)
+            if changed:
+                if values_to_remove:
+                    # 更新verts范围，避免无法构成链
+                    verts[:] = [v for v in verts if v not in values_to_remove]
+                bm.to_mesh(mesh)
+                mesh.update()
+                bm.verts.ensure_lookup_table()
+                bm.edges.ensure_lookup_table()
+            else:
+                break
+
+        bm.to_mesh(mesh)
+        mesh.update()
