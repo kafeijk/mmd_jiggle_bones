@@ -299,6 +299,8 @@ class SetRgbaOperator(bpy.types.Operator):
                 traceback.print_exc()
 
     def _set_rgba_impl(self, props, f_path=None):
+        mode = props.jiggle_adjustment_mode
+        batch = props.batch
         rb_scale_factor = round_to_two_decimals(props.rb_scale_factor)
         filepath = f_path
 
@@ -423,7 +425,6 @@ class SetRgbaOperator(bpy.types.Operator):
             frames.move(frames.find(PHYSICAL_FRAME_NAME), len(root.mmd_root.display_item_frames) - 1)
 
         # 摇晃幅度为默认时，获取尺码信息
-        mode = props.jiggle_adjustment_mode
         result = None
         if mode == "DEFAULT":
             err_msg, result = analyze_breast(root, props.extra_bones_str)
@@ -433,7 +434,6 @@ class SetRgbaOperator(bpy.types.Operator):
         # 重映射权重
         # 因为改变了权重分布，所以要在analyze_breast之后执行，否则得到的cup信息并非原始模型的
         # 因为将权重重映射到了1，所以要在set_joint_limits之前进行该操作，避免无法对小于B尺码的模型做优化
-        mode = props.jiggle_adjustment_mode
         if mode in ["DEFAULT", "CUSTOM_SIMPLIFY"]:
             remap_breast_weights(obj)
 
@@ -445,7 +445,6 @@ class SetRgbaOperator(bpy.types.Operator):
         # 导出模型
         deselect_all_objects()
         select_and_activate(root)
-        batch = props.batch
         if batch.suffix_type == "RGBA":
             new_filepath = os.path.join(file_dir, f"{name} {batch.suffix}.pmx")
         else:
