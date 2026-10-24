@@ -498,9 +498,10 @@ def format_cm(value, decimals=2, unit=True):
 
 
 def trans_vg(obj, source_vg_name, target_vg_name, factor=1.0, remove_source=True):
-    """将顶点权重从源顶点组传递到目标顶点组"""
-    deselect_all_objects()
-    select_and_activate(obj)
+    """
+    将顶点权重从源顶点组传递到目标顶点组。
+    一次遍历同时读取源/目标权重，减少顶点组查询。
+    """
     vgs = obj.vertex_groups
 
     if source_vg_name == target_vg_name:
@@ -510,44 +511,35 @@ def trans_vg(obj, source_vg_name, target_vg_name, factor=1.0, remove_source=True
         return
     # 目标顶点组不存在则新建
     if target_vg_name not in vgs:
-        obj.vertex_groups.new(name=target_vg_name)
+        vgs.new(name=target_vg_name)
 
     source_vg = vgs[source_vg_name]
     target_vg = vgs[target_vg_name]
-    source_vg_index = source_vg.index
-    target_vg_index = target_vg.index
+    source_index = source_vg.index
+    target_index = target_vg.index
 
     for vert in obj.data.vertices:
-        v_index = vert.index
-
-        # 获取源顶点组权重
         src_weight = 0.0
+        tgt_weight = 0.0
         for g in vert.groups:
-            if g.group == source_vg_index:
+            if g.group == source_index:
                 src_weight = g.weight
-                break
+            elif g.group == target_index:
+                tgt_weight = g.weight
 
-        if src_weight > 0:
-            # 计算传递权重
-            transfer_weight = src_weight * factor
+        if src_weight <= 0:
+            continue
 
-            # 获取目标顶点组当前权重
-            tgt_weight = 0.0
-            for g in vert.groups:
-                if g.group == target_vg_index:
-                    tgt_weight = g.weight
-                    break
+        # 将传递权重添加到目标顶点组
+        target_vg.add([vert.index], tgt_weight + src_weight * factor, 'REPLACE')
 
-            # 将传递权重添加到目标顶点组
-            target_vg.add([v_index], tgt_weight + transfer_weight, 'REPLACE')
-
-            # 处理源顶点组权重
-            if remove_source:
-                # 完全转移，移除源权重
-                source_vg.remove([v_index])
-            else:
-                # 按 factor 减少源权重
-                source_vg.add([v_index], src_weight * (1 - factor), 'REPLACE')
+        # 处理源顶点组权重
+        if remove_source:
+            # 完全转移，移除源权重
+            source_vg.remove([vert.index])
+        else:
+            # 按 factor 减少源权重
+            source_vg.add([vert.index], src_weight * (1 - factor), 'REPLACE')
 
 
 def remap_breast_weights(obj):
@@ -556,15 +548,21 @@ def remap_breast_weights(obj):
     primary, marginal = get_vertices_influenced_by_bones(obj, [BREAST_BL_NAME_L, BREAST_BL_NAME_R])
     breast_v = primary + marginal
 
-    # 获取左右胸部顶点组最大权重
+    vg_l = obj.vertex_groups.get(BREAST_BL_NAME_L)
+    vg_r = obj.vertex_groups.get(BREAST_BL_NAME_R)
+    if vg_l is None or vg_r is None:
+        return
+    index_l = vg_l.index
+    index_r = vg_r.index
+
+    # 获取左右胸部顶点组最大权重（按索引比较，避免每个权重都做一次顶点组查询）
     max_weight_l = 0.0
     max_weight_r = 0.0
     for v in breast_v:
         for g in v.groups:
-            group_name = obj.vertex_groups[g.group].name
-            if group_name == BREAST_BL_NAME_L:
+            if g.group == index_l:
                 max_weight_l = max(max_weight_l, g.weight)
-            elif group_name == BREAST_BL_NAME_R:
+            elif g.group == index_r:
                 max_weight_r = max(max_weight_r, g.weight)
 
     # 左胸或右胸最大权重不足1，进行重映射
@@ -599,7 +597,8 @@ def get_vertices_influenced_by_bones(obj, bone_names):
 
 
 def do_remap_breast_weights(obj, vertices, max_weight_l, max_weight_r):
-    """一次遍历，同时重映射胸.L和胸.R顶点组，防止一个顶点受两个顶点组影响时，因处理的先后顺序，读取到修改后的值。"""
+    """一次遍历，同时重映射胸.L和胸.R顶点组，防止一个顶点受两个顶点组影响时，因处理的先后顺序，读取到修改后的值。
+    使用一次 bmesh 写入，避免逐顶点调用 VertexGroup.add 触发网格更新。"""
 
     vg_l = obj.vertex_groups.get(BREAST_BL_NAME_L)
     vg_r = obj.vertex_groups.get(BREAST_BL_NAME_R)
@@ -609,84 +608,80 @@ def do_remap_breast_weights(obj, vertices, max_weight_l, max_weight_r):
 
     index_l = vg_l.index
     index_r = vg_r.index
+    # 锁定权重的顶点组不参与权重的让渡
+    locked_indices = {vg.index for vg in obj.vertex_groups if vg.lock_weight}
+    target_indices = [v.index for v in vertices]
 
-    for v in vertices:
+    with bmesh_from_mesh(obj.data) as bm:
+        # deform：bmesh 的“顶点权重层”集合。每个 deform 层对应网格里的一组顶点组权重（普通网格通常只有一层）。
+        #.verify() 返回该层； 如果还没有这一层就创建它 （get-or-create）。
+        deform = bm.verts.layers.deform.verify()
+        bm.verts.ensure_lookup_table()
 
-        weight_l = 0.0
-        weight_r = 0.0
+        for v_index in target_indices:
+            # 拿到这个顶点的权重容器BMDeformVert，本质是一个{顶点组索引: 权重}的字典 。
+            weights = bm.verts[v_index][deform]
 
-        other_groups = []
+            weight_l = weights.get(index_l, 0.0)
+            weight_r = weights.get(index_r, 0.0)
 
-        # 读取原始权重
-        for g in v.groups:
+            other_groups = [
+                (index, weight) for index, weight in weights.items()
+                if index != index_l and index != index_r
+                and index not in locked_indices and weight > 0
+            ]
 
-            group = obj.vertex_groups[g.group]
+            new_weight_l = weight_l
+            new_weight_r = weight_r
 
-            if g.group == index_l:
-                weight_l = g.weight
+            # 左胸映射
+            if 0 < max_weight_l < 1.0 and weight_l > 0:
+                new_weight_l = min(weight_l / max_weight_l, 1.0)
+
+            # 右胸映射
+            if 0 < max_weight_r < 1.0 and weight_r > 0:
+                new_weight_r = min(weight_r / max_weight_r, 1.0)
+
+            increase_l = new_weight_l - weight_l
+            increase_r = new_weight_r - weight_r
+            increase = increase_l + increase_r
+            if increase <= 0:
                 continue
 
-            if g.group == index_r:
-                weight_r = g.weight
-                continue
+            other_total = sum(weight for _, weight in other_groups)
 
-            if group.lock_weight:
-                continue
+            # 其它权重不足时，按比例缩小左右胸增加量，暂未发现此类案例
+            if increase > other_total:
+                if other_total > 0:
+                    scale = other_total / increase
 
-            other_groups.append((group, g.weight))
+                    increase_l *= scale
+                    increase_r *= scale
 
-        new_weight_l = weight_l
-        new_weight_r = weight_r
+                    new_weight_l = weight_l + increase_l
+                    new_weight_r = weight_r + increase_r
 
-        # 左胸映射
-        if 0 < max_weight_l < 1.0 and weight_l > 0:
-            new_weight_l = min(weight_l / max_weight_l, 1.0)
+                    increase = other_total
+                else:
+                    # 没有其它权重可以让渡，胸部保持原权重
+                    new_weight_l = weight_l
+                    new_weight_r = weight_r
+                    increase = 0
 
-        # 右胸映射
-        if 0 < max_weight_r < 1.0 and weight_r > 0:
-            new_weight_r = min(weight_r / max_weight_r, 1.0)
-
-        increase_l = new_weight_l - weight_l
-        increase_r = new_weight_r - weight_r
-        increase = increase_l + increase_r
-        if increase <= 0:
-            continue
-
-        other_total = sum(weight for _, weight in other_groups)
-
-        # 其它权重不足时，按比例缩小左右胸增加量，暂未发现此类案例
-        if increase > other_total:
+            # 从其它权重中扣除
             if other_total > 0:
-                scale = other_total / increase
+                for index, weight in other_groups:
+                    weights[index] = max(weight - increase * (weight / other_total), 0.0)
 
-                increase_l *= scale
-                increase_r *= scale
+            # 最后一次性写入左右胸
+            if new_weight_l != weight_l:
+                weights[index_l] = new_weight_l
 
-                new_weight_l = weight_l + increase_l
-                new_weight_r = weight_r + increase_r
+            if new_weight_r != weight_r:
+                weights[index_r] = new_weight_r
 
-                increase = other_total
-            else:
-                # 没有其它权重可以让渡，胸部保持原权重
-                new_weight_l = weight_l
-                new_weight_r = weight_r
-                increase = 0
-
-        # 从其它权重中扣除
-        if other_total > 0:
-
-            for vg, weight in other_groups:
-                ratio = weight / other_total
-                new_weight = max(weight - increase * ratio, 0)
-
-                vg.add([v.index], new_weight, 'REPLACE')
-
-        # 最后一次性写入左右胸
-        if new_weight_l != weight_l:
-            vg_l.add([v.index], new_weight_l, 'REPLACE')
-
-        if new_weight_r != weight_r:
-            vg_r.add([v.index], new_weight_r, 'REPLACE')
+        bm.to_mesh(obj.data)
+    obj.data.update()
 
 
 def adjust_ang_limits(target, cup_index):
