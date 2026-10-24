@@ -65,11 +65,11 @@ class AnalysisResult:
     status: AnalysisStatus = AnalysisStatus.ERROR
     msg: str = ""
 
-    threshold: Vector | None = None
+    threshold: float | None = None
     nipple_co: Vector | None = None
     under_co: Vector | None = None
     inner_co: Vector | None = None
-    max_x: int | None = None
+    max_x: float | None = None
     cup: str | None = None
     cup_index: int | None = None
     cup_inner: str | None = None
@@ -83,8 +83,8 @@ class AnalysisResult:
     breast_y: float | None = None
     breast_z: float | None = None
 
-    tmp_obj: object | None = None
-    tmp_obj_for_base_body: object | None = None
+    tmp_obj: bpy.types.Object | None = None
+    tmp_obj_for_base_body: bpy.types.Object | None = None
 
     opposite_normals: bool = False
     max_weight: float | None = None
