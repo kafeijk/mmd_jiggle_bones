@@ -1,3 +1,4 @@
+import traceback
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
@@ -1264,13 +1265,36 @@ class AnalysisOperator(bpy.types.Operator):
         self.flush_count = 0
 
         self.update_progress(props, force=True)
+        props.is_processing = True
         # 防止页面变化
         restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
 
+        # 后台（-b）没有事件循环，modal 不会被驱动，直接同步跑完所有分析步骤
+        if bpy.app.background:
+            return self.run_sync(context, props)
+
         self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
         context.window_manager.modal_handler_add(self)
-        props.is_processing = True
         return {'RUNNING_MODAL'}
+
+    def run_sync(self, context, props):
+        """后台模式：同步跑完所有分析步骤，供 -b 测试使用"""
+        try:
+            while True:
+                status = self._process(context)
+                if 'FINISHED' in status:
+                    return {'FINISHED'}
+                if 'CANCELLED' in status:
+                    return {'CANCELLED'}
+        except Exception as e:
+            self._end(context)
+            try:
+                restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+            except Exception:
+                pass
+            traceback.print_exc()
+            self.report({'ERROR'}, f"分析过程发生异常：{e}")
+            return {'CANCELLED'}
 
     def _end(self, context):
         """移除定时器并复位处理状态，保证任何结束路径都不会留下“处理中”状态"""

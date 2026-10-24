@@ -1,4 +1,5 @@
 import os
+import traceback
 from collections import defaultdict, OrderedDict
 from datetime import datetime
 
@@ -83,12 +84,28 @@ class SetRgbaOperator(bpy.types.Operator):
 
         # 初始化进度条，显示内容为第一个模型
         self.update_progress(props)
+        props.is_processing = True
+
+        # 后台（-b）没有事件循环，modal 不会被驱动，直接同步跑完所有文件
+        if bpy.app.background:
+            return self.run_sync(context, props)
 
         self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
         context.window_manager.modal_handler_add(self)
-        props.is_processing = True
 
         return {'RUNNING_MODAL'}
+
+    def run_sync(self, context, props):
+        """后台模式：同步处理完所有文件，供 -b 测试使用"""
+        try:
+            while self.file_index < len(self.file_list):
+                self._process_current_file(props)
+            return self._finish(context, props)
+        except Exception as e:
+            self._end(context)
+            traceback.print_exc()
+            self.report({'ERROR'}, f"批量处理发生异常：{e}")
+            return {'CANCELLED'}
 
     def _end(self, context):
         """移除定时器并复位处理状态，保证任何结束路径都不会留下“处理中”状态"""
