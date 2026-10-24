@@ -530,7 +530,10 @@ def set_joint_limits(joint_parent, props, result=None):
         limit_lin_z_lower_mmd = -breast_z * 0.5 * MODEL_SCALE
         limit_lin_z_upper_mmd = breast_z * 0.5 * MODEL_SCALE
     else:
-        # 自定义时，参数含义与PE一致，仅做缩放处理
+        # 自定义时，参数含义与PE一致。
+        # mmd_tools 导入 PMX 时会乘 scale（=MODEL_SCALE）。
+        # 导出时又会乘 1/scale 恢复回去。
+        # 这里的 * MODEL_SCALE ，保证导出后与用户填写的数值一致。
         limit_lin_x_lower_mmd = props.limit_lin_x_lower * MODEL_SCALE
         limit_lin_x_upper_mmd = props.limit_lin_x_upper * MODEL_SCALE
         limit_lin_y_lower_mmd = props.limit_lin_y_lower * MODEL_SCALE
