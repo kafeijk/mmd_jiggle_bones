@@ -10,8 +10,8 @@ import bpy
 
 from .constants import (
     BREAST_BL_NAME_L, BREAST_BL_NAME_R, BREAST_BONE_PATTERN, CUP_INDEX_MAP,
-    MAX_RETRIES, STANDARD_CUP_INDEX_MAP, TRACKED_DATA_BLOCK_TYPES,
-    WEIGHT_THRESHOLD,
+    MAX_RETRIES, MODEL_SCALE, RETRY_DELAY, STANDARD_CUP_INDEX_MAP,
+    TRACKED_DATA_BLOCK_TYPES, WEIGHT_THRESHOLD,
 )
 
 
@@ -104,7 +104,7 @@ def import_pmx(filepath: str) -> bool:
     """导入PMX文件，失败时自动重试"""
     params = {
         'filepath': filepath,
-        'scale': 0.08,
+        'scale': MODEL_SCALE,
         # 移除未使用的顶点和重复的或无效的面
         'clean_model': True,
         # 其余参数默认。即使ImportHelper存在用户使用过的缓存，参数默认值仍然为其定义时默认值
@@ -121,7 +121,7 @@ def import_pmx(filepath: str) -> bool:
             print(bpy.app.translations.pgettext_iface(
                 f"Import failed, retrying soon, file: {filepath}, error: {e}"
             ))
-            time.sleep(1)
+            time.sleep(RETRY_DELAY)
 
     # 所有重试均失败
     raise Exception(bpy.app.translations.pgettext_iface(
@@ -133,7 +133,7 @@ def export_pmx(filepath: str) -> bool:
     """导出PMX文件，失败时自动重试"""
     params = {
         'filepath': filepath,
-        'scale': 12.5,
+        'scale': 1 / MODEL_SCALE,
     }
 
     for attempt in range(MAX_RETRIES):
@@ -147,7 +147,7 @@ def export_pmx(filepath: str) -> bool:
             print(bpy.app.translations.pgettext_iface(
                 f"Export failed, retrying soon, file: {filepath}, error: {e}"
             ))
-            time.sleep(1)
+            time.sleep(RETRY_DELAY)
 
     # 全部重试失败后抛出异常
     raise Exception(bpy.app.translations.pgettext_iface(

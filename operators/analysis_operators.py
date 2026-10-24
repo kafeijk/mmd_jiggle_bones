@@ -11,11 +11,11 @@ import bpy_extras.mesh_utils
 from mathutils import Vector
 
 from ..constants import (
-    ANALYSIS_THRESHOLDS,
+    ANALYSIS_THRESHOLDS, BUST_LINE_MAX_ITER, COORD_ROUND_DIGITS,
     BASEBODY_TMP_OBJ_NAME, BREAST_BL_NAME_L, BREAST_BL_NAME_R, CUP_LIST,
     DEFAULT_TMP_OBJ_NAME, LINKED_FACES_THRESHOLD, MAX_RING_COUNT,
-    MAX_SEARCH_COUNT, STANDARD_CUP_LIST, TMP_ANALYSIS_COLLECTION_NAME,
-    TMP_COLLECTION_NAME,
+    MAX_SEARCH_COUNT, STANDARD_CUP_LIST, TIMER_INITIAL_SKIPS, TIMER_INTERVAL,
+    TMP_ANALYSIS_COLLECTION_NAME, TMP_COLLECTION_NAME,
 )
 from ..utils import (
     adjust_ang_limits, bmesh_from_mesh, clean_temp_data, copy_obj,
@@ -100,7 +100,7 @@ def restore_object_state(obj_visibility_map, selected_objects, active_object):
 
 
 def get_co_key(co):
-    return tuple(round(c, 6) for c in co)
+    return tuple(round(c, COORD_ROUND_DIGITS) for c in co)
 
 
 def remove_doubles_between_rings(tmp_obj, idx_rings_map, upper_rings):
@@ -1244,7 +1244,7 @@ class AnalysisOperator(bpy.types.Operator):
         if bpy.app.background:
             return self.run_sync(context, props)
 
-        self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
+        self.timer = context.window_manager.event_timer_add(TIMER_INTERVAL, window=context.window)
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
@@ -1289,7 +1289,7 @@ class AnalysisOperator(bpy.types.Operator):
             return {'RUNNING_MODAL'}
 
         # 确保Blender有足够时间更新进度条所在界面
-        if self.flush_count < 10:
+        if self.flush_count < TIMER_INITIAL_SKIPS:
             self.flush_count += 1
             return {'RUNNING_MODAL'}
 
@@ -2435,7 +2435,7 @@ def select_verts(objs, cos):
     current_active_object = bpy.context.active_object
 
     # 将目标世界坐标转为集合，方便查找
-    cos_set = {tuple(round(c, 6) for c in co) for co in cos if co is not None}
+    cos_set = {tuple(round(c, COORD_ROUND_DIGITS) for c in co) for co in cos if co is not None}
 
     for obj in objs:
         mw = obj.matrix_world
@@ -2443,7 +2443,7 @@ def select_verts(objs, cos):
         # 遍历顶点，匹配世界坐标后选中
         for v in obj.data.vertices:
             world_co = mw @ v.co
-            key = tuple(round(c, 6) for c in world_co)
+            key = tuple(round(c, COORD_ROUND_DIGITS) for c in world_co)
 
             if key in cos_set:
                 v.select = True
@@ -2911,7 +2911,7 @@ def fix_self_intersection(bm, chain, i, j, cache):
 
 def process_bust_line(obj, ring):
     """消除环的自交及凹陷点"""
-    max_iter = 1000
+    max_iter = BUST_LINE_MAX_ITER
     mesh = obj.data
 
     with bmesh_from_mesh(mesh) as bm:

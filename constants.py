@@ -3,6 +3,8 @@ import re
 
 # 最大重试次数
 MAX_RETRIES = 5
+# 导入/导出失败后的重试间隔（秒）
+RETRY_DELAY = 1
 # 临时集合名称
 TMP_COLLECTION_NAME = "胸部物理移植临时集合"
 # 分析临时集合名称
@@ -142,6 +144,22 @@ MAX_SEARCH_COUNT = 100000
 
 # 胸部分析阈值序列
 ANALYSIS_THRESHOLDS = (0.25, 0.2, 0.15, 0.1, 0.05, 0)
+
+# 事件定时器间隔（秒）
+TIMER_INTERVAL = 0.1
+# 进度条首次展开前跳过的定时器事件数
+TIMER_INITIAL_SKIPS = 10
+
+# 顶点坐标比较时的舍入位数
+COORD_ROUND_DIGITS = 6
+
+# 刚体/Joint 排序前缀：36 进制 3 位（ZZZ = 46655），起始值 10000
+ORDER_PREFIX_BASE = 36
+ORDER_PREFIX_WIDTH = 3
+ORDER_PREFIX_START = 10000
+
+# 消除环自交/凹陷的最大迭代次数
+BUST_LINE_MAX_ITER = 1000
 
 # 修正乳首时，顶点关联面的角度超出何种范围时判定为有问题
 LINKED_FACES_THRESHOLD = math.radians(130)  # 100度仍不保守，调整至120度，如雷电将军 调整至130度，如苔丝_绮幻

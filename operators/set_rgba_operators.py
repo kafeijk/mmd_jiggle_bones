@@ -21,9 +21,11 @@ from ..mmd_utils import FnModel
 from ..constants import (
     BREAST_BL_NAME_L, BREAST_BL_NAME_R, BREAST_JP_NAME_L, BREAST_JP_NAME_R,
     BREAST_RB_PATTERN, CUP_LIST, INVALID_CHARS, LIMB_RB_GROUP, LIMB_RB_NAMES,
-    MODEL_SCALE, NECK_NAME, PHYSICAL_FRAME_NAME, RB_JOINT_PREFIX_REGEXP,
+    MODEL_SCALE, NECK_NAME, ORDER_PREFIX_BASE, ORDER_PREFIX_START,
+    ORDER_PREFIX_WIDTH, PHYSICAL_FRAME_NAME, RB_JOINT_PREFIX_REGEXP,
     RGBA_JOINT_NAMES, RGBA_RB2_NAMES, RGBA_RB_NAMES, SENSITIVITY_RB_NAMES,
-    TMP_ANALYSIS_COLLECTION_NAME, TMP_COLLECTION_NAME, UPPER_BODY_NAME,
+    TIMER_INITIAL_SKIPS, TIMER_INTERVAL, TMP_ANALYSIS_COLLECTION_NAME,
+    TMP_COLLECTION_NAME, UPPER_BODY_NAME,
 )
 from ..utils import (
     adjust_ang_limits, bmesh_from_mesh, check_girlsfrontline_breast_bones_and_rbs,
@@ -126,7 +128,7 @@ class SetRgbaOperator(bpy.types.Operator):
         if bpy.app.background:
             return self.run_sync(context, props)
 
-        self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
+        self.timer = context.window_manager.event_timer_add(TIMER_INTERVAL, window=context.window)
         context.window_manager.modal_handler_add(self)
 
         return {'RUNNING_MODAL'}
@@ -163,7 +165,7 @@ class SetRgbaOperator(bpy.types.Operator):
             return {'RUNNING_MODAL'}
 
         # 确保Blender有足够时间更新进度条所在界面
-        if self.flush_count < 10:
+        if self.flush_count < TIMER_INITIAL_SKIPS:
             self.flush_count += 1
             return {'RUNNING_MODAL'}
 
@@ -719,7 +721,7 @@ def configure_collision_mass_order(root, accessory_breast_rel_map, props):
     )
     # ZZZ (36进制) = 46655（十进制）
     for index, rb in enumerate(limb_rbs + breast_rbs):
-        set_index(rb, 10000 + index)
+        set_index(rb, ORDER_PREFIX_START + index)
 
     # Joint重排序
     breast_joints = []
@@ -729,7 +731,7 @@ def configure_collision_mass_order(root, accessory_breast_rel_map, props):
             breast_joints.append(joint)
     breast_joints.sort(key=lambda j: RGBA_JOINT_NAMES.index(j.mmd_joint.name_j))
     for index, rb in enumerate(breast_joints):
-        set_index(rb, 10000 + index)
+        set_index(rb, ORDER_PREFIX_START + index)
 
 
 def apply_location_diff(root_l, armature_l, bone_l, dummy_tail_lo_l, root_r, armature_r, bone_r, dummy_tail_lo_r,
@@ -1137,7 +1139,7 @@ def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):
 def set_index(obj, index):
     m = RB_JOINT_PREFIX_REGEXP.match(obj.name)
     name = m.group('name') if m else obj.name
-    obj.name = '%s_%s' % (int2base(index, 36, 3), name)
+    obj.name = '%s_%s' % (int2base(index, ORDER_PREFIX_BASE, ORDER_PREFIX_WIDTH), name)
 
 
 def expand_accessory_bone_names(armature, accessory_breast_rel_map):
