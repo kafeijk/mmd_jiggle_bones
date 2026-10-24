@@ -205,6 +205,13 @@ def find_joint_parent(root):
     return next(filter(lambda o: o.type == 'EMPTY' and o.mmd_type == 'JOINT_GRP_OBJ', root.children), None)
 
 
+def find_rigid_body(rb_parent, name_j):
+    """按 name_j 查找刚体，找不到时返回 None"""
+    if rb_parent is None:
+        return None
+    return next((rb for rb in rb_parent.children if rb.mmd_rigid.name_j == name_j), None)
+
+
 def select_and_activate(obj):
     """选中并激活物体"""
     if bpy.context.active_object and bpy.context.active_object.mode != "OBJECT":

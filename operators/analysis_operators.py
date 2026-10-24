@@ -11,6 +11,10 @@ from ..utils import *
 
 
 class AnalysisStatus(Enum):
+    """
+    胸部网格结构复杂：可尝试删除无关内容后重新检测。
+    胸部结构异常：模型本身存在问题。
+    """
     OK = (0, "")
     NO_BREAST_VERTS = (1, "无法获取有效胸部网格范围！请检查顶点组中是否存在顶点。")
     NO_ISLANDS = (2, "未找到胸部网格松散块！")
@@ -31,6 +35,8 @@ class AnalysisStatus(Enum):
     BREAST_MESH_COMPLEX_NO_UNDER_RINGS = (16, "胸部网格结构复杂，未检测到下胸围环。请检查后重试。")
     BREAST_MESH_COMPLEX_UPPER_RINGS_MAX_SEARCH = (17, "胸部网格结构复杂，检测到异常数量的上胸围环。请删除无关平面后重试。")
     BREAST_MESH_COMPLEX_UNDER_RINGS_MAX_SEARCH = (18, "胸部网格结构复杂，检测到异常数量的下胸围环。请删除无关平面后重试。")
+    NO_BREAST_LOWER = (19, "胸部结构异常，无法获取胸部下侧点。")
+    NO_BREAST_WIDTH = (20, "胸部结构异常，无法获取胸部宽度。")
     ERROR = (99, "未知错误！")
 
     def __init__(self, code, msg):
@@ -2163,10 +2169,23 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type):
         return AnalysisResult(status=status, msg=status.msg, threshold=threshold, tmp_obj=tmp_obj)
 
     # 获取胸部宽度
-    max_x = max(v.co.x for v in breast_verts if v.co.x >= 0)
+    positive_x = [v.co.x for v in breast_verts if v.co.x >= 0]
+    if not positive_x:
+        bm.free()
+        tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
+        return AnalysisResult(status=AnalysisStatus.NO_BREAST_WIDTH,
+                              msg=AnalysisStatus.NO_BREAST_WIDTH.msg,
+                              threshold=threshold, tmp_obj=tmp_obj)
+    max_x = max(positive_x)
 
     # 获取胸部下侧参考顶点（松散块中，z最小且位于边界边上、且位于胸部内侧的点）。
     lower = get_breast_lower(max_x, boundary)
+    if lower is None:
+        bm.free()
+        tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
+        return AnalysisResult(status=AnalysisStatus.NO_BREAST_LOWER,
+                              msg=AnalysisStatus.NO_BREAST_LOWER.msg,
+                              threshold=threshold, tmp_obj=tmp_obj)
     lower_co = lower.co
 
     # 获取胸部前侧参考顶点并修正
@@ -2234,7 +2253,7 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type):
 
 
 def get_breast_lower(max_x, boundary):
-    """获取胸部下侧顶点"""
+    """获取胸部下侧顶点，找不到时返回 None"""
 
     center_x = max_x / 2
 
@@ -2244,6 +2263,9 @@ def get_breast_lower(max_x, boundary):
         lower_verts = [v for v in boundary if center_x - max_x * ratio <= abs(v.co.x) <= center_x + max_x * ratio]
         if lower_verts:
             break
+
+    if not lower_verts:
+        return None
 
     lower_vert = min(
         sort_verts(lower_verts),

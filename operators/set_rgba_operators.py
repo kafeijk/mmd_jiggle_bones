@@ -334,11 +334,7 @@ class SetRgbaOperator(bpy.types.Operator):
 
         # 获取RGBA胸部中左右胸骨
         bone_l = armature_l.pose.bones.get(BREAST_BL_NAME_L)
-        if not bone_l:
-            raise RuntimeError(f"未在胸部素材中找到{BREAST_BL_NAME_L}骨骼")
         bone_r = armature_r.pose.bones.get(BREAST_BL_NAME_R)
-        if not bone_r:
-            raise RuntimeError(f"未在胸部素材中找到{BREAST_BL_NAME_R}骨骼")
 
         # 获取伪胸部骨骼的坐标
         dummy_head_lo_l, dummy_head_lo_r, dummy_tail_lo_l, dummy_tail_lo_r, x_r, z_r = get_dummy_breast_coords(
@@ -719,10 +715,9 @@ def apply_location_diff(root_l, armature_l, bone_l, dummy_tail_lo_l, root_r, arm
     root_r.location += offset_r
 
     # 获取 胸部刚体前端 与 源模型胸部区域y最小值 的差值
-    b_rb_l = next(r for r in rb_parent_l.children if r.mmd_rigid.name_j == BREAST_JP_NAME_L)
+    b_rb_l = find_rigid_body(rb_parent_l, BREAST_JP_NAME_L)
     world_cos = [b_rb_l.matrix_world @ v.co for v in b_rb_l.data.vertices]
-    y_values = [co.y for co in world_cos]
-    y_min = min(y_values)
+    y_min = min(co.y for co in world_cos)
     offset_y = (armature_r.matrix_world @ bone_r.tail).y - y_min
 
     # 移动胸部root以适配源模型
@@ -762,8 +757,8 @@ def apply_rotation_diff(root_l, armature_l, bone_l, dummy_head_lo_l, dummy_tail_
 
 def apply_scale_diff(rb_parent_l, rb_parent_r, x_r, z_r, rb_scale_factor):
     """计算RGBA胸部刚体半径与胸部区域半径的缩放差，并调整RGBA胸部刚体半径"""
-    b_rb_l = next(r for r in rb_parent_l.children if r.mmd_rigid.name_j == BREAST_JP_NAME_L)
-    b_rb_r = next(r for r in rb_parent_r.children if r.mmd_rigid.name_j == BREAST_JP_NAME_R)
+    b_rb_l = find_rigid_body(rb_parent_l, BREAST_JP_NAME_L)
+    b_rb_r = find_rigid_body(rb_parent_r, BREAST_JP_NAME_R)
     breast_r = (x_r + z_r) / 2
     r = b_rb_l.mmd_rigid.size[0]
     # 由于胸部并非完美球形，弥补缩放差后胸部刚体会超出实际胸部区域，所以需乘上rb_scale_factor
@@ -926,15 +921,18 @@ def repair_accessory(root, accessory_breast_rel_map, kept_joints):
     for bbc_name, bb_name in accessory_breast_rel_map.items():
         if bb_name is None:
             continue
-        if ".L" in bb_name:
-            armature.data.edit_bones.get(bbc_name).parent = armature.data.edit_bones.get(BREAST_BL_NAME_L)
-        else:
-            armature.data.edit_bones.get(bbc_name).parent = armature.data.edit_bones.get(BREAST_BL_NAME_R)
+        child_bone = armature.data.edit_bones.get(bbc_name)
+        parent_bone = armature.data.edit_bones.get(
+            BREAST_BL_NAME_L if ".L" in bb_name else BREAST_BL_NAME_R
+        )
+        if child_bone is None or parent_bone is None:
+            continue
+        child_bone.parent = parent_bone
     bpy.ops.object.mode_set(mode='OBJECT')
 
     # 重新连接无效关节
-    b_rb_l = next(r for r in rb_parent.children if r.mmd_rigid.name_j == BREAST_JP_NAME_L)
-    b_rb_r = next(r for r in rb_parent.children if r.mmd_rigid.name_j == BREAST_JP_NAME_R)
+    b_rb_l = find_rigid_body(rb_parent, BREAST_JP_NAME_L)
+    b_rb_r = find_rigid_body(rb_parent, BREAST_JP_NAME_R)
 
     for joint in reversed(joint_parent.children):
         side = kept_joints.get(joint.name)
