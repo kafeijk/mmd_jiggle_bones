@@ -688,6 +688,11 @@ def configure_collision_mass_order(root, accessory_breast_rel_map, props):
         rgba_rbs = [rb for rb in rigid_bodies if rb.mmd_rigid.name_j in RGBA_RB_NAMES]
         accessory_bone_names = expand_accessory_bone_names(armature, accessory_breast_rel_map)
 
+        # BVH 只与网格本身有关，本次循环里网格不会变，所以每个对象只建一次：
+        # 胸部刚体按需建并缓存，胸饰刚体同样按需建并缓存，避免每对组合都重建
+        rgba_bvh_map = {}
+        accessory_bvh_map = {}
+
         accessory_rbs = []
         for rb in rigid_bodies:
             if rb.mmd_rigid.type not in ('1', '2'):
@@ -699,9 +704,16 @@ def configure_collision_mass_order(root, accessory_breast_rel_map, props):
             accessory_rbs.append(rb)
             if rb.mmd_rigid.collision_group_mask[breast_rb_group] is True:
                 continue
+            accessory_bvh = accessory_bvh_map.get(rb.as_pointer())
+            if accessory_bvh is None:
+                accessory_bvh = create_bvh_tree_from_object(rb)
+                accessory_bvh_map[rb.as_pointer()] = accessory_bvh
             for rgba_rb in rgba_rbs:
-                intersection = check_bvh_intersection(rb, rgba_rb)
-                if intersection:
+                rgba_bvh = rgba_bvh_map.get(rgba_rb.as_pointer())
+                if rgba_bvh is None:
+                    rgba_bvh = create_bvh_tree_from_object(rgba_rb)
+                    rgba_bvh_map[rgba_rb.as_pointer()] = rgba_bvh
+                if accessory_bvh.overlap(rgba_bvh):
                     rb.mmd_rigid.collision_group_mask[breast_rb_group] = True
                     break
 
@@ -1268,10 +1280,3 @@ def create_bvh_tree_from_object(obj):
     with bmesh_from_mesh(obj.data) as bm:
         bm.transform(obj.matrix_world)
         return BVHTree.FromBMesh(bm)
-
-
-def check_bvh_intersection(obj_1, obj_2):
-    """https://blender.stackexchange.com/questions/9073/how-to-check-if-two-meshes-intersect-in-python"""
-    bvh1 = create_bvh_tree_from_object(obj_1)
-    bvh2 = create_bvh_tree_from_object(obj_2)
-    return bvh1.overlap(bvh2)
