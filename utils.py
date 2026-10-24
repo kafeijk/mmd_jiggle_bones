@@ -92,9 +92,10 @@ def select_and_activate(obj):
 
 def deselect_all_objects():
     """对场景中的选中对象和活动对象取消选择"""
-    if bpy.context.active_object is None:
-        return
-    bpy.ops.object.mode_set(mode='OBJECT')
+    # 没有活动对象时无法切换模式，但仍要取消选择
+    active_object = bpy.context.active_object
+    if active_object is not None and active_object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
     bpy.ops.object.select_all(action='DESELECT')
     bpy.context.view_layer.objects.active = None
 
