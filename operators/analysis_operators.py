@@ -1,3 +1,4 @@
+import array
 import traceback
 import math
 import time
@@ -1018,6 +1019,27 @@ def crop_mesh_by_z(obj, z_min, z_max):
         mesh.update()
 
 
+def _same_matrix(objs):
+    """所有对象是否共享同一套世界矩阵（此时合并不会把顶点变换到别的坐标系）"""
+    base = objs[0].matrix_world
+    return all(
+        all(abs(base[r][c] - obj.matrix_world[r][c]) <= 1e-6 for r in range(4) for c in range(4))
+        for obj in objs[1:]
+    )
+
+
+def _z_bounds(obj):
+    """网格数据自身的局部 z 范围（不含修改器/姿态，和复制出来的网格一致）"""
+    mesh = obj.data
+    count = len(mesh.vertices)
+    if count == 0:
+        return None
+    co = array.array('f', [0.0]) * (count * 3)
+    mesh.vertices.foreach_get("co", co)
+    zs = co[2::3]
+    return min(zs), max(zs)
+
+
 def process_source_objs(data):
     """
     1. 复制对象并进行切割，减少后续处理耗时。
@@ -1027,11 +1049,44 @@ def process_source_objs(data):
     source_objs = data["source_objs"]
     b_names_l = data["b_names_l"]
     b_names_r = data["b_names_r"]
+    vg_names = b_names_l + b_names_r
+
+    # 先算出胸部 z 区间，只复制可能落在这个区间内的对象：
+    # 头、头发、眼、鞋等整块网格在切割阶段会被整块删掉，复制 → 合并 → 切割它们纯属浪费。
+    # 合并时若各对象矩阵不一致，顶点会被变换到活动对象的空间，区间不可直接比较，此时退回原流程。
+    filter_by_z = len(source_objs) > 1 and _same_matrix(source_objs)
+    if filter_by_z:
+        max_z, min_z = get_max_min_z(source_objs, vg_names)
+        # 没有任何胸部顶点时，不做过筛，避免合并空集合出错
+        if max_z == float("-inf") or min_z == float("inf"):
+            filter_by_z = False
+
+    if filter_by_z:
+        z_lo = min_z - 0.01
+        z_hi = max_z + 0.01
+        copy_objs = []
+        for obj in source_objs:
+            bounds = _z_bounds(obj)
+            # 空网格合并后也会被整块删除
+            if bounds is None:
+                continue
+            obj_z_lo, obj_z_hi = bounds
+            # 整个对象都在切割范围外：合并后也只会被整块删除，直接跳过
+            if obj_z_hi < z_lo or obj_z_lo > z_hi:
+                continue
+            copy_objs.append(obj)
+    else:
+        copy_objs = source_objs
+
+    # 极端情况下（所有网格都没有顶点）退回完整流程，避免后续合并空集合报错
+    if not copy_objs:
+        filter_by_z = False
+        copy_objs = source_objs
 
     # 创建拷贝数据
     tmp_col = get_collection(TMP_ANALYSIS_COLLECTION_NAME)
     tmp_objs = []
-    for obj in source_objs:
+    for obj in copy_objs:
         tmp_obj = copy_obj(obj, tmp_col)
         tmp_obj.parent = None
         tmp_objs.append(tmp_obj)
@@ -1040,7 +1095,11 @@ def process_source_objs(data):
     deselect_all_objects()
     if len(tmp_objs) > 1:
         for tmp_obj in tmp_objs:
-            select_and_activate(tmp_obj)
+            try:
+                tmp_obj.select_set(True)
+            except RuntimeError:  # 物体不在视图层中，无法选中
+                pass
+        bpy.context.view_layer.objects.active = tmp_objs[-1]
         bpy.ops.object.join()
     else:
         select_and_activate(tmp_objs[0])
@@ -1048,9 +1107,9 @@ def process_source_objs(data):
     copied_source_objs = [copied_source_obj]
     tmp_col.objects.unlink(copied_source_obj)
 
-    # 获取胸部顶点的 max_z 和 min_z
-    vg_names = b_names_l + b_names_r
-    max_z, min_z = get_max_min_z(copied_source_objs, vg_names)
+    # 获取胸部顶点的 max_z 和 min_z（已在复制前算过则直接复用）
+    if not filter_by_z:
+        max_z, min_z = get_max_min_z(copied_source_objs, vg_names)
 
     # 切割 copied_source_objs，保留 0.01m 的冗余范围
     for obj in copied_source_objs:
@@ -1093,22 +1152,28 @@ def get_max_min_z(copied_source_objs, vg_names):
 
     for obj in copied_source_objs:
         mesh = obj.data
+        vgs = obj.vertex_groups
 
-        # 获取目标顶点组索引
-        vg_indices = {
-            obj.vertex_groups[name].index
-            for name in vg_names
-            if obj.vertex_groups.get(name)
-        }
+        # 目标顶点组索引
+        vg_indices = set()
+        for name in vg_names:
+            vg = vgs.get(name)
+            if vg is not None:
+                vg_indices.add(vg.index)
 
         if not vg_indices:
             continue
 
         for v in mesh.vertices:
-            if any(g.group in vg_indices for g in v.groups):
-                z = v.co.z
-                min_z = min(min_z, z)
-                max_z = max(max_z, z)
+            # 直接遍历权重，避免每个顶点生成一个 any() 生成器
+            for g in v.groups:
+                if g.group in vg_indices:
+                    z = v.co.z
+                    if z < min_z:
+                        min_z = z
+                    if z > max_z:
+                        max_z = z
+                    break
 
     return max_z, min_z
 
