@@ -1894,6 +1894,33 @@ def build_uv_island_cache(bm, temp_obj):
     return vert_island_id, island_verts_map
 
 
+def check_vert(v, vert_island_id, under_island_id):
+    # 顶点不能位于temp_obj的边界边上，但前侧顶点和下侧顶点位于同一个uv则可忽略这项校验（防止短款夹克的干扰，恩雅_澜风_恋恋秋行）
+    if any(e.is_boundary for e in v.link_edges):
+        if vert_island_id.get(v) != under_island_id:
+            return False
+
+    # 顶点相邻的面，不能为服装背面（雷电将军）
+    if v.link_faces and all(f.normal.y > 0 for f in v.link_faces):
+        return False
+
+    # 顶点应至少和三条边相连（茉莉安_幽潮_绒尾迷梦、雷电将军）
+    if len(v.link_edges) < 3:
+        return False
+
+    for edge in get_sorted_link_edges(v):
+        faces = edge.link_faces
+        if len(faces) == 2:
+            # 法线夹角
+            angle = faces[0].normal.angle(faces[1].normal, 0)
+            # 实际折角
+            dihedral = math.pi - angle
+            # 顶点相邻的面，相互间的夹角不能小于 LINKED_FACES_THRESHOLD 度
+            if dihedral < LINKED_FACES_THRESHOLD:
+                return False
+    return True
+
+
 def get_breast_nipple(bm, temp_obj, breast_verts, under_vert, other_island_verts, analysis_type):
     """
     获取胸部前侧参考顶点并修正。
@@ -1962,39 +1989,13 @@ def get_breast_nipple(bm, temp_obj, breast_verts, under_vert, other_island_verts
                     key=lambda v: sum(e.calc_length() for e in get_sorted_link_edges(v)) / len(v.link_edges)
                 )
 
-    def check_vert(v):
-        # 顶点不能位于temp_obj的边界边上，但前侧顶点和下侧顶点位于同一个uv则可忽略这项校验（防止短款夹克的干扰，恩雅_澜风_恋恋秋行）
-        if any(e.is_boundary for e in v.link_edges):
-            if vert_island_id.get(v) != under_island_id:
-                return False
-
-        # 顶点相邻的面，不能为服装背面（雷电将军）
-        if v.link_faces and all(f.normal.y > 0 for f in v.link_faces):
-            return False
-
-        # 顶点应至少和三条边相连（茉莉安_幽潮_绒尾迷梦、雷电将军）
-        if len(v.link_edges) < 3:
-            return False
-
-        for edge in get_sorted_link_edges(v):
-            faces = edge.link_faces
-            if len(faces) == 2:
-                # 法线夹角
-                angle = faces[0].normal.angle(faces[1].normal, 0)
-                # 实际折角
-                dihedral = math.pi - angle
-                # 顶点相邻的面，相互间的夹角不能小于 LINKED_FACES_THRESHOLD 度
-                if dihedral < LINKED_FACES_THRESHOLD:
-                    return False
-        return True
-
     while True:
         if not breast_verts_set:
             return AnalysisStatus.NO_BREAST_VERTS_AFTER_DELETE_INVALID, None, None
 
         upper_vert = find_upper_vert()
 
-        if check_vert(upper_vert):
+        if check_vert(upper_vert, vert_island_id, under_island_id):
             break
 
         # 乳首的选取存在干扰，删除所在顶点并重新筛选
