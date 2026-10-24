@@ -1097,8 +1097,13 @@ def filter_horizontal_bones(armature, breast_bones):
 
 def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):
     """清理无效刚体Joint"""
-    original_mode = bpy.context.active_object.mode
+    active_object = bpy.context.active_object
+    original_mode = active_object.mode if active_object is not None else None
     armature, objs, joint_parent, rb_parent = get_mmd_info(root)
+
+    # 需要删除的衝突刚体名单
+    addon_rb = [f"{n}{COLLISION_SUFFIX}" for n in LIMB_RB_NAMES + [BREAST_JP_NAME_L, BREAST_JP_NAME_R]] + [
+        "上半身2_R", "上半身2_L"]
 
     # （预先）删除无效关节
     for joint in reversed(joint_parent.children):
@@ -1122,8 +1127,6 @@ def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):
             rbs_to_delete.add(rigidbody)
             continue
         # 删除衝突刚体，防止重复创建
-        addon_rb = [f"{n}{COLLISION_SUFFIX}" for n in LIMB_RB_NAMES + [BREAST_JP_NAME_L, BREAST_JP_NAME_R]] + ["上半身2_R",
-                                                                                                 "上半身2_L"]
         if name_j in addon_rb:
             rbs_to_delete.add(rigidbody)
             continue
@@ -1149,7 +1152,9 @@ def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):
         if not rigidbody1 or not rigidbody2:
             bpy.data.objects.remove(joint, do_unlink=True)
 
-    bpy.ops.object.mode_set(mode=original_mode)
+    # 仅在确实改变了模式时才切回去
+    if original_mode is not None and active_object.mode != original_mode:
+        bpy.ops.object.mode_set(mode=original_mode)
 
 
 def set_index(obj, index):
