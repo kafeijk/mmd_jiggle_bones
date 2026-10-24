@@ -67,8 +67,18 @@ def copy_rb(rb):
     new_mesh = rb.data.copy()
     new_rb = rb.copy()
     new_rb.data = new_mesh
-    col = rb.users_collection[0]
-    col.objects.link(new_rb)
+
+    # 复制带刚体的对象时，Blender 会自动把副本加入刚体世界集合；
+    # 因此不能直接链接到 rb.users_collection[0]（可能正好是刚体世界集合，会报“已在集合里”）
+    rigid_world_collections = {
+        scene.rigidbody_world.collection
+        for scene in bpy.data.scenes
+        if scene.rigidbody_world is not None
+    }
+    target_col = next(
+        (col for col in rb.users_collection if col not in rigid_world_collections), None)
+    if target_col is not None and new_rb.name not in target_col.objects:
+        target_col.objects.link(new_rb)
     return new_rb
 
 
