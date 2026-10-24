@@ -990,8 +990,13 @@ def get_accessory_info(armature, breast_bones, breast_names, joint_parent, rb_pa
     # 记录链接胸和胸饰品的Joint，避免后续被删除，供后续修复Joint连接用
     kept_joints = {}
     for joint in joint_parent.children:
-        object1 = joint.rigid_body_constraint.object1
-        object2 = joint.rigid_body_constraint.object2
+        rbc = joint.rigid_body_constraint
+        if not rbc:
+            continue
+        object1 = rbc.object1
+        object2 = rbc.object2
+        if not object1 or not object2:
+            continue
 
         if object1.name in accessory_rb_names and object2.name in breast_rb_names:
             breast_rb = object2
