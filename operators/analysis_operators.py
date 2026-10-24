@@ -1971,7 +1971,7 @@ def get_breast_nipple(bm, temp_obj, breast_verts, under_vert, other_island_verts
             return False
 
         # 顶点应至少和三条边相连（茉莉安_幽潮_绒尾迷梦、雷电将军）
-        if len(upper_vert.link_edges) < 3:
+        if len(v.link_edges) < 3:
             return False
 
         for edge in get_sorted_link_edges(v):
