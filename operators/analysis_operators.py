@@ -22,8 +22,8 @@ from ..utils import (
     adjust_ang_limits, bmesh_from_mesh, clean_temp_data, copy_obj,
     deselect_all_objects, find_ancestor, find_objs, format_cm,
     get_breast_bones_map, get_collection, get_standard_cup_index,
-    purge_new_orphan_data, remap_breast_weights, restore_selection,
-    select_and_activate, set_batch_progress, set_visibility, show_object,
+    is_visible_in_viewport, purge_new_orphan_data, remap_breast_weights,
+    restore_selection, select_and_activate, set_batch_progress,
     snapshot_data_blocks, tag_redraw, trans_vg,
 )
 
@@ -90,14 +90,6 @@ class AnalysisResult:
 
     opposite_normals: bool = False
     max_weight: float | None = None
-
-
-def restore_object_state(obj_visibility_map, selected_objects, active_object):
-    """恢复对象的显示状态与选择状态"""
-    for obj, visibility in obj_visibility_map.items():
-        set_visibility(obj, visibility)
-
-    restore_selection(selected_objects, active_object)
 
 
 def get_co_key(co):
@@ -1225,7 +1217,7 @@ class AnalysisOperator(bpy.types.Operator):
             return {'FINISHED'}
 
         # 预处理
-        self.obj_visibility_map = preprocess(self.active_object, self.data["source_objs"])
+        preprocess(self.active_object, self.data["source_objs"])
 
         self.initialized = False
         self.thresholds = ANALYSIS_THRESHOLDS
@@ -1240,7 +1232,7 @@ class AnalysisOperator(bpy.types.Operator):
 
         self.update_progress(props, force=True)
         # 防止页面变化
-        restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+        restore_selection(self.selected_objects, self.active_object)
 
         # 后台（-b）没有事件循环，modal 不会被驱动，直接同步跑完所有分析步骤
         if bpy.app.background:
@@ -1262,7 +1254,7 @@ class AnalysisOperator(bpy.types.Operator):
         except Exception as e:
             self._end(context)
             try:
-                restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+                restore_selection(self.selected_objects, self.active_object)
             except Exception:
                 pass
             traceback.print_exc()
@@ -1310,7 +1302,7 @@ class AnalysisOperator(bpy.types.Operator):
             # 任何未预期异常都结束流程并复位状态，避免modal静默中断后UI卡死
             self._end(context)
             try:
-                restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+                restore_selection(self.selected_objects, self.active_object)
             except Exception:
                 pass
             self.report({'ERROR'}, f"分析过程发生异常：{e}")
@@ -1332,7 +1324,7 @@ class AnalysisOperator(bpy.types.Operator):
             # 每次执行后，隐藏临时集合并恢复对象状态防止页面变化
             tmp_col = get_collection(TMP_ANALYSIS_COLLECTION_NAME)
             context.scene.collection.children.unlink(tmp_col)
-            restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+            restore_selection(self.selected_objects, self.active_object)
             # 更新进度
             self.update_progress(context.scene.mmd_jiggle_tools_analysis)
             return {'RUNNING_MODAL'}
@@ -1379,7 +1371,7 @@ class AnalysisOperator(bpy.types.Operator):
 
             # 每次执行后，隐藏临时集合并恢复对象状态防止页面变化
             scene.collection.children.unlink(tmp_col)
-            restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+            restore_selection(self.selected_objects, self.active_object)
             return {'RUNNING_MODAL'}
         else:
             results = self.results
@@ -1387,7 +1379,7 @@ class AnalysisOperator(bpy.types.Operator):
             # 若results全部异常，则直接拦截。
             if all(r.status != AnalysisStatus.OK for r in results):
                 remove_tmp_obj(results, remove_tmp, analysis_type, copied_source_objs)
-                restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+                restore_selection(self.selected_objects, self.active_object)
                 self._end(context)
                 msg = build_all_failed_msg(results)
                 self.report({'ERROR'}, msg)
@@ -1408,7 +1400,7 @@ class AnalysisOperator(bpy.types.Operator):
             set_joint_param(context, result)
 
             # 恢复对象的显示状态与选择状态
-            restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+            restore_selection(self.selected_objects, self.active_object)
             self._end(context)
 
             # 构建显示消息
@@ -1655,9 +1647,13 @@ def validate_analysis_param(active_object, extra_bones):
         return "源模型中未找到骨架！", None
 
     # 网格
-    source_objs = find_objs(root, obj_type="MESH")
-    if not source_objs:
+    mesh_objs = find_objs(root, obj_type="MESH")
+    if not mesh_objs:
         return "源模型中未找到网格！", None
+    # 只处理视图里可见的网格，隐藏的对象不纳入分析范围
+    source_objs = [obj for obj in mesh_objs if is_visible_in_viewport(obj)]
+    if not source_objs:
+        return "请确保网格在3D视图中可见！", None
 
     # 胸部骨骼
     breast_bones_map = get_breast_bones_map(source_armatures, extra_bones)
@@ -1698,13 +1694,7 @@ def validate_analysis_param(active_object, extra_bones):
 
 
 def preprocess(active_object, source_objs):
-    """预处理"""
-    # 备份网格的隐藏状态并全部取消隐藏
-    obj_visibility_map = {}
-    for obj in source_objs:
-        obj_visibility_map[obj] = (obj.hide_select, obj.hide_get(), obj.hide_viewport, obj.hide_render)
-        show_object(obj)
-
+    """预处理：准备选择状态与点选择模式，不改动物体可见性"""
     deselect_all_objects()
     for obj in source_objs:
         select_and_activate(obj)
@@ -1718,8 +1708,6 @@ def preprocess(active_object, source_objs):
     # 恢复选择
     deselect_all_objects()
     select_and_activate(active_object)
-
-    return obj_visibility_map
 
 
 def get_verts_influenced_by_bones(obj, bone_names, threshold, right=True):

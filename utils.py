@@ -121,6 +121,20 @@ def set_visibility(obj, visibility):
     obj.hide_render = visibility[3]
 
 
+def is_visible_in_viewport(obj):
+    """
+    物体是否真的显示在当前视图里
+
+    visible_get() 一次覆盖所有「看不见」的情况：
+    - 物体自己被隐藏（hide_set）或被禁用（hide_viewport）
+    - 所在集合被隐藏、被禁用或在视图层里被排除
+    - 根本没链进场景 / 不在当前视图层
+
+    物体同时挂在多个集合上时，只要还有一个集合可见，就算可见。
+    """
+    return obj.visible_get()
+
+
 @contextmanager
 def bmesh_from_mesh(mesh):
     """从 Mesh 创建 bmesh，退出时自动释放"""
