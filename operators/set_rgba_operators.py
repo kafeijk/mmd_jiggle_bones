@@ -83,14 +83,28 @@ class SetRgbaOperator(bpy.types.Operator):
 
         # 初始化进度条，显示内容为第一个模型
         self.update_progress(props)
-        props.is_processing = True
 
         self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
         context.window_manager.modal_handler_add(self)
+        props.is_processing = True
 
         return {'RUNNING_MODAL'}
 
+    def _end(self, context):
+        """移除定时器并复位处理状态，保证任何结束路径都不会留下“处理中”状态"""
+        if getattr(self, "timer", None) is not None:
+            context.window_manager.event_timer_remove(self.timer)
+            self.timer = None
+
+        context.scene.mmd_jiggle_tools_set_rgba.is_processing = False
+
     def modal(self, context, event):
+        # 允许用户通过 ESC 结束批处理，避免流程无法退出
+        if event.type == 'ESC':
+            self._end(context)
+            self.report({'INFO'}, "已取消处理")
+            return {'CANCELLED'}
+
         # 忽略用户的操作，仅处理TIMER事件，
         if event.type != 'TIMER':
             return {'RUNNING_MODAL'}
@@ -100,61 +114,77 @@ class SetRgbaOperator(bpy.types.Operator):
             self.flush_count += 1
             return {'RUNNING_MODAL'}
 
-        scene = context.scene
-        props = scene.mmd_jiggle_tools_set_rgba
+        props = context.scene.mmd_jiggle_tools_set_rgba
 
-        if self.file_index >= len(self.file_list):
-            context.window_manager.event_timer_remove(self.timer)
+        try:
+            if self.file_index >= len(self.file_list):
+                return self._finish(context, props)
 
-            self.update_progress(props, all_done=True)
-            props.is_processing = False
+            self._process_current_file(props)
+        except Exception as e:
+            # 任何未预期异常都结束流程并复位状态，避免modal静默中断后UI卡死
+            self._end(context)
+            self.report({'ERROR'}, f"批量处理发生异常：{e}")
+            return {'CANCELLED'}
 
-            total_time = time.time() - self.start_time
+        return {'RUNNING_MODAL'}
 
-            if self.name_msg_map:
-                combined_msg = "\n".join(
-                    f"{name} - {msg}"
-                    for name, msg in self.name_msg_map.items()
-                )
+    def _finish(self, context, props):
+        self.update_progress(props, all_done=True)
+        self._end(context)
 
-                msg = (f"{len(self.file_list) - len(self.name_msg_map)}/{len(self.file_list)} 个文件已处理完成"
-                       f"（总耗时 {total_time:.2f}s）。点击查看详细报告 ↑↑↑")
+        total_time = time.time() - self.start_time
 
-                self.report({'WARNING'}, combined_msg)
-                self.report({'WARNING'}, msg)
+        if self.name_msg_map:
+            combined_msg = "\n".join(
+                f"{name} - {msg}"
+                for name, msg in self.name_msg_map.items()
+            )
 
-            else:
-                abs_path = bpy.path.abspath(props.batch.directory).rstrip("\\/")
-                msg = f"目录“{abs_path}”处理完成（总耗时 {total_time:.2f}s）"
-                self.report({'INFO'}, msg)
-            return {'FINISHED'}
+            msg = (f"{len(self.file_list) - len(self.name_msg_map)}/{len(self.file_list)} 个文件已处理完成"
+                   f"（总耗时 {total_time:.2f}s）。点击查看详细报告 ↑↑↑")
 
+            self.report({'WARNING'}, combined_msg)
+            self.report({'WARNING'}, msg)
+
+        else:
+            abs_path = bpy.path.abspath(props.batch.directory).rstrip("\\/")
+            msg = f"目录“{abs_path}”处理完成（总耗时 {total_time:.2f}s）"
+            self.report({'INFO'}, msg)
+        return {'FINISHED'}
+
+    def _process_current_file(self, props):
         # 主流程
         file_start = time.time()
 
         filepath = self.file_list[self.file_index]
         file_name = os.path.basename(filepath)
+        name = os.path.splitext(file_name)[0]
 
-        name, status, msg = self.set_rgba(props, f_path=filepath)
-        if status == "ERROR":
-            self.name_msg_map[name] = msg
-        self.file_index += 1
+        try:
+            name, status, msg = self.set_rgba(props, f_path=filepath)
+            if status == "ERROR":
+                self.name_msg_map[name] = msg
+        except Exception as e:
+            # 单个文件处理失败不中断整批，记录错误后继续处理下一个文件
+            self.name_msg_map[name] = f"处理异常：{e}"
+            print(f'文件“{file_name}”处理异常：{e}')
+        finally:
+            self.file_index += 1
+            # 恢复选中状态
+            restore_selection(self.selected_objects, self.active_object)
+            # 更新进度
+            self.update_progress(props)
 
         elapsed_file = time.time() - file_start
         elapsed_total = time.time() - self.start_time
 
         print(
-            f'文件“{file_name}”处理完成，'
+            f'文件“{file_name}”处理结束，'
             f'进度 {self.file_index}/{len(self.file_list)}'
             f'（当前耗时 {elapsed_file:.2f}s，'
             f'总耗时 {elapsed_total:.2f}s）'
         )
-
-        # 恢复选中状态
-        restore_selection(self.selected_objects, self.active_object)
-        # 更新进度
-        self.update_progress(props)
-        return {'RUNNING_MODAL'}
 
     def update_progress(self, props, all_done=False):
         if self.file_index < len(self.file_list):

@@ -1264,15 +1264,29 @@ class AnalysisOperator(bpy.types.Operator):
         self.flush_count = 0
 
         self.update_progress(props, force=True)
-        props.is_processing = True
         # 防止页面变化
         restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
 
         self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
         context.window_manager.modal_handler_add(self)
+        props.is_processing = True
         return {'RUNNING_MODAL'}
 
+    def _end(self, context):
+        """移除定时器并复位处理状态，保证任何结束路径都不会留下“处理中”状态"""
+        if getattr(self, "timer", None) is not None:
+            context.window_manager.event_timer_remove(self.timer)
+            self.timer = None
+
+        context.scene.mmd_jiggle_tools_analysis.is_processing = False
+
     def modal(self, context, event):
+        # 允许用户通过 ESC 结束分析，避免流程无法退出
+        if event.type == 'ESC':
+            self._end(context)
+            self.report({'INFO'}, "已取消分析")
+            return {'CANCELLED'}
+
         # 忽略用户的操作，仅处理TIMER事件，
         if event.type != 'TIMER':
             return {'RUNNING_MODAL'}
@@ -1282,6 +1296,19 @@ class AnalysisOperator(bpy.types.Operator):
             self.flush_count += 1
             return {'RUNNING_MODAL'}
 
+        try:
+            return self._process(context)
+        except Exception as e:
+            # 任何未预期异常都结束流程并复位状态，避免modal静默中断后UI卡死
+            self._end(context)
+            try:
+                restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
+            except Exception:
+                pass
+            self.report({'ERROR'}, f"分析过程发生异常：{e}")
+            return {'CANCELLED'}
+
+    def _process(self, context):
         # 复制对象并进行切割，减少后续处理耗时
         # 重映射胸部权重，提高胸部边缘区域权重，从而提升尺码选择时的准确率
         if not self.initialized:
@@ -1340,8 +1367,7 @@ class AnalysisOperator(bpy.types.Operator):
             restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
             return {'RUNNING_MODAL'}
         else:
-            context.window_manager.event_timer_remove(self.timer)
-            props.is_processing = False
+            self._end(context)
 
             results = self.results
 
