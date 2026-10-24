@@ -20,8 +20,8 @@ from .analysis_operators import validate_analysis_param
 from ..mmd_utils import FnModel
 from ..constants import (
     BREAST_BL_NAME_L, BREAST_BL_NAME_R, BREAST_JP_NAME_L, BREAST_JP_NAME_R,
-    BREAST_RB_PATTERN, CUP_LIST, INVALID_CHARS, LIMB_RB_GROUP, LIMB_RB_NAMES,
-    MODEL_SCALE, NECK_NAME, ORDER_PREFIX_BASE, ORDER_PREFIX_START,
+    BREAST_RB_PATTERN, COLLISION_SUFFIX, CUP_LIST, INVALID_CHARS, LIMB_RB_GROUP,
+    LIMB_RB_NAMES, MODEL_SCALE, NECK_NAME, ORDER_PREFIX_BASE, ORDER_PREFIX_START,
     ORDER_PREFIX_WIDTH, PHYSICAL_FRAME_NAME, RB_JOINT_PREFIX_REGEXP,
     RGBA_JOINT_NAMES, RGBA_RB2_NAMES, RGBA_RB_NAMES, SENSITIVITY_RB_NAMES,
     TIMER_INITIAL_SKIPS, TIMER_INTERVAL, TMP_ANALYSIS_COLLECTION_NAME,
@@ -570,6 +570,13 @@ def get_rb_bone_rel_map(rb_parent):
     return rbn_bone_map, rbn_rb_map, bone_rbs_map
 
 
+def limb_rb_sort_key(lrb):
+    """按原始手臂刚体名称排序，忽略“衝突”后缀"""
+    base_name = lrb.mmd_rigid.name_j.removesuffix(COLLISION_SUFFIX)
+    # 未知名称排在已知名称之后
+    return LIMB_RB_NAMES.index(base_name) if base_name in LIMB_RB_NAMES else len(LIMB_RB_NAMES)
+
+
 def configure_collision_mass_order(root, accessory_breast_rel_map, props):
     """
     设置胸部刚体碰撞组、修改胸饰刚体质量、对胸部刚体及Joint重排序
@@ -614,7 +621,7 @@ def configure_collision_mass_order(root, accessory_breast_rel_map, props):
                 continue
             crb = copy_rb(rb)
             limb_rb_map[name_j] = crb
-            crb_name = f"{name_j}衝突"
+            crb_name = f"{name_j}{COLLISION_SUFFIX}"
             crb.mmd_rigid.name_j = crb_name
             crb.name = f"AAA_{crb_name}"
             crb.mmd_rigid.collision_group_number = LIMB_RB_GROUP
@@ -658,7 +665,7 @@ def configure_collision_mass_order(root, accessory_breast_rel_map, props):
                 continue
             crb = copy_rb(rb)
             breast_collision_rb_map[name_j] = crb
-            crb_name = f"{name_j}衝突"
+            crb_name = f"{name_j}{COLLISION_SUFFIX}"
             crb.mmd_rigid.name_j = crb_name
             crb.name = f"AAA_{crb_name}"
             crb.mmd_rigid.type = "0"
@@ -715,10 +722,7 @@ def configure_collision_mass_order(root, accessory_breast_rel_map, props):
         if name_j in RGBA_RB2_NAMES:
             breast_rbs.append(rb)
     breast_rbs.sort(key=lambda rb: RGBA_RB2_NAMES.index(rb.mmd_rigid.name_j))
-    limb_rbs = sorted(
-        limb_rb_map.values(),
-        key=lambda lrb: LIMB_RB_NAMES.index(lrb.mmd_rigid.name_j) if lrb.mmd_rigid.name_j in LIMB_RB_NAMES else -1
-    )
+    limb_rbs = sorted(limb_rb_map.values(), key=limb_rb_sort_key)
     # ZZZ (36进制) = 46655（十进制）
     for index, rb in enumerate(limb_rbs + breast_rbs):
         set_index(rb, ORDER_PREFIX_START + index)
@@ -1106,7 +1110,7 @@ def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):
             rbs_to_delete.add(rigidbody)
             continue
         # 删除衝突刚体，防止重复创建
-        addon_rb = [f"{n}衝突" for n in LIMB_RB_NAMES + [BREAST_JP_NAME_L, BREAST_JP_NAME_R]] + ["上半身2_R",
+        addon_rb = [f"{n}{COLLISION_SUFFIX}" for n in LIMB_RB_NAMES + [BREAST_JP_NAME_L, BREAST_JP_NAME_R]] + ["上半身2_R",
                                                                                                  "上半身2_L"]
         if name_j in addon_rb:
             rbs_to_delete.add(rigidbody)

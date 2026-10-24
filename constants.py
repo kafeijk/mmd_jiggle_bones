@@ -29,6 +29,8 @@ RGBA_JOINT_NAMES = [
 LIMB_RB_NAMES = ["右手首", "右手", "右ひじ", "右腕", "左手首", "左手", "左ひじ", "左腕"]
 # 四肢 + 躯干 主体刚体碰撞群组  PE 1~16 MMD Tools 0~15
 LIMB_RB_GROUP = 13
+# 衝突刚体名称后缀
+COLLISION_SUFFIX = "衝突"
 
 # 灵敏度设置涉及的刚体名称
 SENSITIVITY_RB_NAMES = ["左胸", "右胸", "左胸_後", "右胸_後"]
