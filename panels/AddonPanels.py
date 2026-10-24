@@ -1,10 +1,10 @@
 import bpy
 
-from ..constants import PANEL_ID_PREFIX
+from ..constants import PANEL_ID_PREFIX, TASK_ANALYSIS, TASK_SET_RGBA
 from ..operators.set_rgba_operators import SetRgbaOperator
 from ..operators.analysis_operators import AnalysisOperator
 from ..operators.utility_operators import GetSelectedBoneNameOperator
-from ..utils import get_addon_version
+from ..utils import get_addon_version, get_batch_progress
 
 _addon_version = None
 
@@ -113,13 +113,15 @@ class RGBAPanel(bpy.types.Panel):
         row = col.row(align=True)
         row.operator(SetRgbaOperator.bl_idname, text=SetRgbaOperator.bl_label)
 
-        if props.is_processing:
-            layout.label(text=props.progress_message)
+        progress = get_batch_progress(TASK_SET_RGBA)
+        if progress["active"]:
+            layout.label(text=progress["text"])
 
             # 进度条，Blender 4.0及以上生效
             blender_version = bpy.app.version
             if blender_version >= (4, 0, 0):
-                layout.progress(factor=props.progress, type='BAR', text=f"{props.progress_current}/{props.progress_total}")
+                layout.progress(factor=progress["factor"], type='BAR',
+                                text=f"{progress['current']}/{progress['total']}")
 
 
 class AnalysisPanel(bpy.types.Panel):
@@ -149,13 +151,14 @@ class AnalysisPanel(bpy.types.Panel):
         col.prop(props, "remove_tmp")
         col.operator(AnalysisOperator.bl_idname, text=AnalysisOperator.bl_label)
 
-        if props.is_processing:
+        progress = get_batch_progress(TASK_ANALYSIS)
+        if progress["active"]:
             # 进度条，Blender 4.0及以上生效
             blender_version = bpy.app.version
             if blender_version >= (4, 0, 0):
-                layout.progress(factor=props.progress, type='BAR', text=f"{props.progress:.2%}")
+                layout.progress(factor=progress["factor"], type='BAR', text=f"{progress['factor']:.2%}")
             else:
-                layout.label(text=props.progress_message)
+                layout.label(text=progress["text"])
 
 
 class AboutPanel(bpy.types.Panel):

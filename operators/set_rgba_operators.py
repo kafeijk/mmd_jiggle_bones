@@ -25,7 +25,7 @@ from ..constants import (
     LIMB_RB_NAMES, MODEL_SCALE, NECK_NAME, ORDER_PREFIX_BASE, ORDER_PREFIX_START,
     ORDER_PREFIX_WIDTH, PHYSICAL_FRAME_NAME, RB_JOINT_PREFIX_REGEXP,
     RGBA_JOINT_NAMES, RGBA_RB2_NAMES, RGBA_RB_NAMES, SENSITIVITY_RB_NAMES,
-    TIMER_INITIAL_SKIPS, TIMER_INTERVAL, TMP_ANALYSIS_COLLECTION_NAME,
+    TASK_SET_RGBA, TIMER_INTERVAL, TMP_ANALYSIS_COLLECTION_NAME,
     TMP_COLLECTION_NAME, UPPER_BODY_NAME,
 )
 from ..utils import (
@@ -34,8 +34,8 @@ from ..utils import (
     find_pmx_armature, find_pmx_objects, find_rigid_body, find_rigid_body_parent,
     get_breast_bones_map, get_collection, get_vertices_influenced_by_bones,
     import_pmx, int2base, is_dummy_bone, is_mmd_tools_enabled,
-    remap_breast_weights, restore_selection, select_and_activate, show_object,
-    snapshot_data_blocks, trans_vg,
+    remap_breast_weights, restore_selection, select_and_activate, set_batch_progress,
+    show_object, snapshot_data_blocks, tag_redraw, trans_vg,
 )
 
 
@@ -94,8 +94,9 @@ class SetRgbaOperator(bpy.types.Operator):
     bl_description = (
         "RGBA式胸部物理移植\n"
         "生成的模型无法在Blender、MMM、NexGiMa中直接进行烘焙\n"
-        "如需烘焙，请使用MMD桥生成带物理的VMD文件，或采用ABC流程")
-    bl_options = {'REGISTER', 'UNDO'}
+        "如需烘焙，请使用MMD桥生成带物理的VMD文件，或采用ABC流程\n"
+        "批量操作不可撤销，请确认后再执行")
+    bl_options = {'REGISTER'}
 
     def execute(self, context):
         scene = context.scene
@@ -118,12 +119,11 @@ class SetRgbaOperator(bpy.types.Operator):
         self.processing_file = False  # 控制UI刷新与主流程交替执行
         # 记录批处理开始前的数据块，后续只清理本次新增的，避免误删用户数据
         self.data_snapshot = snapshot_data_blocks()
-        # 确保Blender有足够时间更新进度条所在界面（由于进度条面板首次显示时会新增UI区域，需要等待区域完全展开）
+        # 进度条所在面板首次展开需要重新布局，先跳过两帧并主动重绘（见 modal）
         self.flush_count = 0
 
         # 初始化进度条，显示内容为第一个模型
-        self.update_progress(props)
-        props.is_processing = True
+        self.update_progress()
 
         # 后台（-b）没有事件循环，modal 不会被驱动，直接同步跑完所有文件
         if bpy.app.background:
@@ -152,7 +152,8 @@ class SetRgbaOperator(bpy.types.Operator):
             context.window_manager.event_timer_remove(self.timer)
             self.timer = None
 
-        context.scene.mmd_jiggle_tools_set_rgba.is_processing = False
+        set_batch_progress(TASK_SET_RGBA, False)
+        tag_redraw(context)
 
     def modal(self, context, event):
         # 允许用户通过 ESC 结束批处理，避免流程无法退出
@@ -165,9 +166,10 @@ class SetRgbaOperator(bpy.types.Operator):
         if event.type != 'TIMER':
             return {'RUNNING_MODAL'}
 
-        # 确保Blender有足够时间更新进度条所在界面
-        if self.flush_count < TIMER_INITIAL_SKIPS:
+        # 进度条所在面板首次展开需要重新布局：先跳过两帧并主动重绘，避免界面来不及画
+        if self.flush_count < 2:
             self.flush_count += 1
+            tag_redraw(context)
             return {'RUNNING_MODAL'}
 
         props = context.scene.mmd_jiggle_tools_set_rgba
@@ -186,7 +188,6 @@ class SetRgbaOperator(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def _finish(self, context, props):
-        self.update_progress(props, all_done=True)
         self._end(context)
 
         total_time = time.time() - self.start_time
@@ -228,7 +229,7 @@ class SetRgbaOperator(bpy.types.Operator):
             # 恢复选中状态
             restore_selection(self.selected_objects, self.active_object)
             # 更新进度
-            self.update_progress(props)
+            self.update_progress()
 
         elapsed_file = time.time() - file_start
         elapsed_total = time.time() - self.start_time
@@ -240,22 +241,20 @@ class SetRgbaOperator(bpy.types.Operator):
             f'总耗时 {elapsed_total:.2f}s）'
         )
 
-    def update_progress(self, props, all_done=False):
+    def update_progress(self):
         if self.file_index < len(self.file_list):
             filepath = self.file_list[self.file_index]
             file_name = os.path.basename(filepath)
 
-            props.progress_current = self.file_index + 1
-            props.progress_total = len(self.file_list)
-            props.progress = props.progress_current / props.progress_total
-            blender_version = bpy.app.version
-            if blender_version >= (4, 0, 0):
-                props.progress_message = f"正在处理：{file_name}"
+            current = self.file_index + 1
+            total = len(self.file_list)
+            if bpy.app.version >= (4, 0, 0):
+                text = f"正在处理：{file_name}"
             else:
-                props.progress_message = f"{props.progress_current}/{props.progress_total} 正在处理：{file_name}"
+                text = f"{current}/{total} 正在处理：{file_name}"
 
-        if props.progress == 1.0 and all_done:
-            props.progress_message = "处理完成"
+            set_batch_progress(TASK_SET_RGBA, True, current / total, text, current, total)
+            tag_redraw(bpy.context)
 
     def check_props(self, props):
         if not is_mmd_tools_enabled():

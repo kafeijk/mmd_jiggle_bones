@@ -239,13 +239,6 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         step=0.1,
     )
 
-    progress: bpy.props.FloatProperty(
-        name="进度",
-        default=0.0,
-        min=0.0,
-        max=1.0,
-    )
-
     sensitivity: bpy.props.FloatProperty(
         name="灵敏度",
         description="胸部灵敏度，用于提高幅度较小动作下胸部的响应效果\n调整该值可能会导致开启物理演算后，胸部默认姿态出现向下偏转的情况\n如出现该问题，可将角度限制X的下限调整为0，以避免胸部向下偏转",
@@ -253,26 +246,6 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         min=1,
         max=15,
         update=lambda self, context: self.update_ang_x(context),
-    )
-
-    progress_current: bpy.props.IntProperty(
-        name="当前文件",
-        default=0,
-    )
-
-    progress_total: bpy.props.IntProperty(
-        name="文件总数",
-        default=0,
-    )
-
-    progress_message: bpy.props.StringProperty(
-        name="进度信息",
-        default="",
-    )
-
-    is_processing: bpy.props.BoolProperty(
-        name="处理中",
-        default=False,
     )
 
     batch: bpy.props.PointerProperty(type=BatchProperty)

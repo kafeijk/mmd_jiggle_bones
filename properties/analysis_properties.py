@@ -29,33 +29,6 @@ class AnalysisProperty(bpy.types.PropertyGroup):
         default=True
     )
 
-    progress: bpy.props.FloatProperty(
-        name="进度",
-        default=0.0,
-        min=0.0,
-        max=1.0,
-    )
-
-    progress_current: bpy.props.IntProperty(
-        name="当前文件",
-        default=0,
-    )
-
-    progress_total: bpy.props.IntProperty(
-        name="文件总数",
-        default=0,
-    )
-
-    progress_message: bpy.props.StringProperty(
-        name="进度信息",
-        default="",
-    )
-
-    is_processing: bpy.props.BoolProperty(
-        name="处理中",
-        default=False,
-    )
-
     @staticmethod
     def register():
         bpy.types.Scene.mmd_jiggle_tools_analysis = bpy.props.PointerProperty(type=AnalysisProperty)

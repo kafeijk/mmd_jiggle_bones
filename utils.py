@@ -10,9 +10,41 @@ import bpy
 
 from .constants import (
     BREAST_BL_NAME_L, BREAST_BL_NAME_R, BREAST_BONE_PATTERN, CUP_INDEX_MAP,
-    MAX_RETRIES, MODEL_SCALE, RETRY_DELAY, STANDARD_CUP_INDEX_MAP,
-    TRACKED_DATA_BLOCK_TYPES, WEIGHT_THRESHOLD,
+    MAX_RETRIES, MODEL_SCALE, RETRY_DELAY, STANDARD_CUP_INDEX_MAP, TASK_ANALYSIS,
+    TASK_SET_RGBA, TRACKED_DATA_BLOCK_TYPES, WEIGHT_THRESHOLD,
 )
+
+# 批处理进度：存放在模块级变量中，而不是 Scene 属性里，
+# 这样进程崩溃/强制退出时不会把“处理中”状态写进 .blend
+_BATCH_PROGRESS = {
+    TASK_SET_RGBA: {"active": False, "factor": 0.0, "text": "", "current": 0, "total": 0},
+    TASK_ANALYSIS: {"active": False, "factor": 0.0, "text": "", "current": 0, "total": 0},
+}
+
+
+def get_batch_progress(task):
+    """当前批处理进度（面板绘制用）"""
+    return _BATCH_PROGRESS[task]
+
+
+def set_batch_progress(task, active, factor=0.0, text="", current=0, total=0):
+    """更新批处理进度；active=False 表示结束，面板不再画进度条"""
+    state = _BATCH_PROGRESS[task]
+    state["active"] = bool(active)
+    state["factor"] = min(max(float(factor), 0.0), 1.0)
+    state["text"] = text
+    state["current"] = current
+    state["total"] = total
+
+
+def tag_redraw(context):
+    """标记 3D 视图重画：进度条在侧边栏里，不主动重绘就要等下次界面刷新"""
+    window = getattr(context, "window", None)
+    if window is None or window.screen is None:
+        return
+    for area in window.screen.areas:
+        if area.type == 'VIEW_3D':
+            area.tag_redraw()
 
 
 def get_cup_index(value):

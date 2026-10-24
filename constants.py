@@ -154,8 +154,10 @@ ANALYSIS_THRESHOLDS = (0.25, 0.2, 0.15, 0.1, 0.05, 0)
 
 # 事件定时器间隔（秒）
 TIMER_INTERVAL = 0.1
-# 进度条首次展开前跳过的定时器事件数
-TIMER_INITIAL_SKIPS = 10
+
+# 批处理进度标识：进度状态存放在模块级变量中，不写入 .blend
+TASK_SET_RGBA = "set_rgba"
+TASK_ANALYSIS = "analysis"
 
 # 顶点坐标比较时的舍入位数
 COORD_ROUND_DIGITS = 6

@@ -15,7 +15,7 @@ from ..constants import (
     ANALYSIS_THRESHOLDS, BUST_LINE_MAX_ITER, COORD_ROUND_DIGITS,
     BASEBODY_TMP_OBJ_NAME, BREAST_BL_NAME_L, BREAST_BL_NAME_R, CUP_LIST,
     DEFAULT_TMP_OBJ_NAME, LINKED_FACES_THRESHOLD, MAX_RING_COUNT,
-    MAX_SEARCH_COUNT, STANDARD_CUP_LIST, TIMER_INITIAL_SKIPS, TIMER_INTERVAL,
+    MAX_SEARCH_COUNT, STANDARD_CUP_LIST, TASK_ANALYSIS, TIMER_INTERVAL,
     TMP_ANALYSIS_COLLECTION_NAME, TMP_COLLECTION_NAME,
 )
 from ..utils import (
@@ -23,8 +23,8 @@ from ..utils import (
     deselect_all_objects, find_ancestor, find_objs, format_cm,
     get_breast_bones_map, get_collection, get_standard_cup_index,
     purge_new_orphan_data, remap_breast_weights, restore_selection,
-    select_and_activate, set_visibility, show_object, snapshot_data_blocks,
-    trans_vg,
+    select_and_activate, set_batch_progress, set_visibility, show_object,
+    snapshot_data_blocks, tag_redraw, trans_vg,
 )
 
 
@@ -1233,11 +1233,12 @@ class AnalysisOperator(bpy.types.Operator):
         self.further_index = 0
         self.results = []
         self.all_done = False
-        # 确保Blender有足够时间更新进度条所在界面（由于进度条面板首次显示时会新增UI区域，需要等待区域完全展开）
+        # 进度条所在面板首次展开需要重新布局，先跳过两帧并主动重绘（见 modal）
         self.flush_count = 0
+        # 进度更新后是否还要多留一轮 TIMER，让界面把它画出来
+        self.hold_progress = False
 
         self.update_progress(props, force=True)
-        props.is_processing = True
         # 防止页面变化
         restore_object_state(self.obj_visibility_map, self.selected_objects, self.active_object)
 
@@ -1274,7 +1275,8 @@ class AnalysisOperator(bpy.types.Operator):
             context.window_manager.event_timer_remove(self.timer)
             self.timer = None
 
-        context.scene.mmd_jiggle_tools_analysis.is_processing = False
+        set_batch_progress(TASK_ANALYSIS, False)
+        tag_redraw(context)
         # 只清理本次新增的无用户数据块，避免影响用户已有数据
         purge_new_orphan_data(getattr(self, "data_snapshot", None))
 
@@ -1289,13 +1291,21 @@ class AnalysisOperator(bpy.types.Operator):
         if event.type != 'TIMER':
             return {'RUNNING_MODAL'}
 
-        # 确保Blender有足够时间更新进度条所在界面
-        if self.flush_count < TIMER_INITIAL_SKIPS:
+        # 进度条所在面板首次展开需要重新布局：先跳过两帧并主动重绘，避免界面来不及画
+        if self.flush_count < 2:
             self.flush_count += 1
+            tag_redraw(context)
+            return {'RUNNING_MODAL'}
+
+        # 每个进度多留一轮 TIMER 再继续：只留一轮时，两次进度更新有可能被合并进
+        # 同一次界面重绘，看起来就像跳了一格（16.67% → 50%）
+        if self.hold_progress:
+            self.hold_progress = False
+            tag_redraw(context)
             return {'RUNNING_MODAL'}
 
         try:
-            return self._process(context)
+            status = self._process(context)
         except Exception as e:
             # 任何未预期异常都结束流程并复位状态，避免modal静默中断后UI卡死
             self._end(context)
@@ -1305,6 +1315,13 @@ class AnalysisOperator(bpy.types.Operator):
                 pass
             self.report({'ERROR'}, f"分析过程发生异常：{e}")
             return {'CANCELLED'}
+
+        if 'RUNNING_MODAL' not in status:
+            return status
+
+        tag_redraw(context)
+        self.hold_progress = True
+        return {'RUNNING_MODAL'}
 
     def _process(self, context):
         # 复制对象并进行切割，减少后续处理耗时
@@ -1403,13 +1420,10 @@ class AnalysisOperator(bpy.types.Operator):
 
     def update_progress(self, props, force=False):
         """更新进度"""
-        blender_version = bpy.app.version
-
         # 初始化时，随便赋予个起始值
         if force:
-            props.progress = 0.05
-            if blender_version < (4, 0, 0):
-                props.progress_message = f"进度 {props.progress:.2%}"
+            set_batch_progress(TASK_ANALYSIS, True, 0.05, "进度 5.00%")
+            tag_redraw(bpy.context)
             return
 
         count = len(self.thresholds)
@@ -1424,14 +1438,12 @@ class AnalysisOperator(bpy.types.Operator):
             if self.analysis_index == count:
                 current = count + self.further_index + 1
 
-        props.progress_current = current
-        props.progress = current / total
+        factor = min(current / total, 1.0)
+        if not self.all_done and factor == 1:
+            factor = 0.9999
 
-        if not self.all_done and props.progress == 1:
-            props.progress = 0.9999
-
-        if blender_version < (4, 0, 0):
-            props.progress_message = f"进度 {props.progress:.2%}"
+        set_batch_progress(TASK_ANALYSIS, True, factor, f"进度 {factor:.2%}", current, total)
+        tag_redraw(bpy.context)
 
 
 def build_all_failed_msg(results):
