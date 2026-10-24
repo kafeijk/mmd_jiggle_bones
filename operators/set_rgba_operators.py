@@ -1113,9 +1113,14 @@ def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):
     original_mode = active_object.mode if active_object is not None else None
     armature, objs, joint_parent, rb_parent = get_mmd_info(root)
 
-    # 需要删除的衝突刚体名单
-    addon_rb = [f"{n}{COLLISION_SUFFIX}" for n in LIMB_RB_NAMES + [BREAST_JP_NAME_L, BREAST_JP_NAME_R]] + [
-        "上半身2_R", "上半身2_L"]
+    # 需要删除的附加刚体名单：衝突刚体 + RGBA 原始躯干刚体名 + 本次绑定的目标骨骼名
+    # 目标骨骼名不一定是“上半身2”（如仅有“上半身”），动态生成才能保证重跑时删掉上一次的产物
+    addon_rb = {f"{n}{COLLISION_SUFFIX}" for n in LIMB_RB_NAMES + [BREAST_JP_NAME_L, BREAST_JP_NAME_R]}
+    addon_rb.update(n for n in RGBA_RB2_NAMES if n.startswith(UPPER_BODY_NAME))
+    neck_bone = armature.data.bones.get(NECK_NAME)
+    if neck_bone is not None and neck_bone.parent is not None:
+        target_upper_body_name = neck_bone.parent.name
+        addon_rb.update({f"{target_upper_body_name}_L", f"{target_upper_body_name}_R"})
 
     # （预先）删除无效关节
     for joint in reversed(joint_parent.children):
