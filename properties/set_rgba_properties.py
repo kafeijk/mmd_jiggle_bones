@@ -1,8 +1,23 @@
 import math
+from contextlib import contextmanager
 
 import bpy
 
 from .batch_properties import BatchProperty
+
+# update 回调内写其它属性时用于短路，避免连锁回调（Blender 单线程，模块级布尔即可）
+_is_syncing = False
+
+
+@contextmanager
+def _sync_guard():
+    """在回调内写属性时短路所有 update 回调，避免一次改动触发一串 update"""
+    global _is_syncing
+    _is_syncing = True
+    try:
+        yield
+    finally:
+        _is_syncing = False
 
 
 class SetRgbaProperty(bpy.types.PropertyGroup):
@@ -259,15 +274,21 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         del bpy.types.Scene.mmd_jiggle_tools_set_rgba
 
     def skip_13(self, context):
+        if _is_syncing:
+            return
         # 13 是手臂的碰撞组，避免使用13
         if self.collision_group_number == 13:
-            self.collision_group_number = 12
+            with _sync_guard():
+                self.collision_group_number = 12
 
     def sync_extra(self, context):
+        if _is_syncing:
+            return
         target = context.scene.mmd_jiggle_tools_analysis
         if target.extra_bones_str == self.extra_bones_str:
             return
-        target.extra_bones_str = self.extra_bones_str
+        with _sync_guard():
+            target.extra_bones_str = self.extra_bones_str
 
     def _sync_pair(self, sync, lower_attr, upper_attr, changed_property):
         if not sync:
@@ -276,14 +297,18 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
             current = getattr(self, upper_attr)
             new_value = -getattr(self, lower_attr)
             if current != new_value:
-                setattr(self, upper_attr, new_value)
+                with _sync_guard():
+                    setattr(self, upper_attr, new_value)
         elif changed_property == upper_attr:
             current = getattr(self, lower_attr)
             new_value = -getattr(self, upper_attr)
             if current != new_value:
-                setattr(self, lower_attr, new_value)
+                with _sync_guard():
+                    setattr(self, lower_attr, new_value)
 
     def update_limits(self, context, changed_property):
+        if _is_syncing:
+            return
         if self.jiggle_adjustment_mode in ("DEFAULT", "CUSTOM_SIMPLIFY"):
             return
         self._sync_pair(self.limit_lin_x_sync, "limit_lin_x_lower", "limit_lin_x_upper", changed_property)
@@ -294,7 +319,9 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         self._sync_pair(self.limit_ang_z_sync, "limit_ang_z_lower", "limit_ang_z_upper", changed_property)
 
     def set_default_params(self, context, changed_property):
-        struct = context.scene.mmd_jiggle_tools_set_rgba
+        if _is_syncing:
+            return
+        struct = self
         batch = struct.batch
 
         if self.jiggle_adjustment_mode == "DEFAULT":
@@ -317,12 +344,17 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
 
         props = struct.bl_rna.properties
 
-        for name in target_props:
-            setattr(struct, name, props[name].default)
+        # 批量重置期间短路各属性的 update，避免逐个触发连锁回调
+        with _sync_guard():
+            for name in target_props:
+                setattr(struct, name, props[name].default)
 
     def update_ang_x(self, context):
+        if _is_syncing:
+            return
         if self.jiggle_adjustment_mode in ("DEFAULT", "CUSTOM_SIMPLIFY"):
             return
         if self.sensitivity != 1:
-            self.limit_ang_x_sync = False
-            self.limit_ang_x_lower = math.radians(0)
+            with _sync_guard():
+                self.limit_ang_x_sync = False
+                self.limit_ang_x_lower = math.radians(0)
