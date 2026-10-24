@@ -24,7 +24,7 @@ from ..utils import (
     get_breast_bones_map, get_collection, get_standard_cup_index,
     is_visible_in_viewport, purge_new_orphan_data, remap_breast_weights,
     restore_selection, select_and_activate, set_batch_progress,
-    snapshot_data_blocks, tag_redraw, trans_vg,
+    snapshot_data_blocks, tag_redraw, trans_vg, timeit,
 )
 
 
@@ -559,16 +559,13 @@ def get_rings_at_z(obj, z_target, max_ring_count=MAX_RING_COUNT):
     mesh = obj.data
 
     # 获取目标 Z 高度上的顶点
-    candidates = {v.index: v for v in mesh.vertices if v.co.z == z_target}
-    if not candidates:
+    candidate_indices = {v.index for v in mesh.vertices if v.co.z == z_target}
+    if not candidate_indices:
         return []
-    candidate_indices = set(candidates.keys())
 
     # 建立无向图
     # vertex -> 相邻 vertex
     adjacency = defaultdict(set)
-    # (v0, v1) -> 边长
-    edge_length = {}
     for edge in mesh.edges:
         v0, v1 = edge.vertices
         if v0 not in candidate_indices or v1 not in candidate_indices:
@@ -576,10 +573,6 @@ def get_rings_at_z(obj, z_target, max_ring_count=MAX_RING_COUNT):
 
         adjacency[v0].add(v1)
         adjacency[v1].add(v0)
-
-        key = get_edge_key(v0, v1)
-        length = (candidates[v0].co - candidates[v1].co).length
-        edge_length[key] = length
 
     # 移除孤立顶点
     adjacency = {
@@ -603,99 +596,55 @@ def get_rings_at_z(obj, z_target, max_ring_count=MAX_RING_COUNT):
 
 
 def find_simple_cycles(adjacency, max_ring_count):
-    """在无向图中寻找简单环，最多返回 max_ring_count 个"""
+    """在无向图中寻找简单环，最多返回 max_ring_count 个（迭代 DFS，避免长环递归溢出）"""
     cycles = set()
-    vertices = sorted(adjacency)
+    # 搜索预算在所有起点间共享，避免“每个起点各跑 MAX_SEARCH_COUNT 步”的最坏情况
+    budget = MAX_SEARCH_COUNT
 
-    for start in vertices:
-        counter = [0]
-
+    for start in sorted(adjacency):
         visited = {start}
         path = [start]
+        # 栈元素：(当前顶点, 该顶点的邻居迭代器)
+        stack = [(start, iter(adjacency[start]))]
 
-        reached_limit, max_search = dfs_find_cycles(
-            start=start,
-            current=start,
-            adjacency=adjacency,
-            visited=visited,
-            path=path,
-            cycles=cycles,
-            max_ring_count=max_ring_count,
-            counter=counter,
-        )
+        while stack:
+            current, neighbors = stack[-1]
 
-        # 已经找到足够数量的环，直接结束
-        if reached_limit:
-            break
+            try:
+                neighbor = next(neighbors)
+            except StopIteration:
+                stack.pop()
+                path.pop()
+                visited.discard(current)
+                continue
 
-        if max_search:
-            return None
+            # 回到起点：形成一个环
+            if neighbor == start:
+                if len(path) >= 3:
+                    cycles.add(canonical_cycle(path))
+                    # 达到数量限制，立即终止整个搜索
+                    if len(cycles) >= max_ring_count:
+                        return [list(cycle) for cycle in cycles]
+                continue
+
+            # 跳过已访问
+            if neighbor in visited:
+                continue
+
+            # 剪枝：start 为排序后更小一侧的顶点，只允许访问 >= start 的顶点
+            if neighbor < start:
+                continue
+
+            # 超过搜索次数
+            budget -= 1
+            if budget < 0:
+                return None
+
+            visited.add(neighbor)
+            path.append(neighbor)
+            stack.append((neighbor, iter(adjacency[neighbor])))
 
     return [list(cycle) for cycle in cycles]
-
-
-def dfs_find_cycles(start, current, adjacency, visited, path, cycles, max_ring_count, counter,
-                    max_search_count=MAX_SEARCH_COUNT):
-    """DFS 搜索从 start 出发的简单环。"""
-
-    # 超过搜索次数
-    counter[0] += 1
-    if counter[0] > max_search_count:
-        return False, True  # 第一个布尔表示是否达到数量限制，第二个布尔表示是否超过搜索次数
-
-    for neighbor in adjacency[current]:
-
-        # 回到起点
-        if neighbor == start:
-            if len(path) >= 3:
-                cycle = canonical_cycle(path)
-                # 去除重复环
-                cycles.add(cycle)
-
-                # 达到数量限制，立即终止整个搜索
-                if len(cycles) >= max_ring_count:
-                    return True, False
-
-            continue
-
-        # 跳过已访问
-        if neighbor in visited:
-            continue
-
-        # 剪枝
-        # start为排序后更小一侧的顶点，只允许访问 >= start 的顶点
-        # 1 ─ 2
-        # │   │
-        # 4 ─ 3
-        # 允许   1 → 2 → 3 → 4 → 1
-        # 不许   2 → 3 → 4 → 1 → 2
-        if neighbor < start:
-            continue
-
-        visited.add(neighbor)
-        path.append(neighbor)
-
-        reached_limit, max_search = dfs_find_cycles(
-            start=start,
-            current=neighbor,
-            adjacency=adjacency,
-            visited=visited,
-            path=path,
-            cycles=cycles,
-            max_ring_count=max_ring_count,
-            counter=counter,
-        )
-
-        path.pop()
-        visited.remove(neighbor)
-
-        if reached_limit:
-            return True, False
-
-        if max_search:
-            return False, True
-
-    return False, False
 
 
 def canonical_cycle(cycle):
@@ -735,27 +684,24 @@ def canonical_cycle(cycle):
 
 
 def get_ring_lengths(obj, rings):
-    """计算每个顶点环的边长总和，返回 {ring: length}"""
+    """计算每个顶点环的边长总和，返回 {ring: length}
+    只为环上的相邻顶点对计算距离，避免每次都为整张网格的所有边求长度。"""
     mesh = obj.data
 
-    # 边 -> 边长
-    edge_lengths = {}
-    for edge in mesh.edges:
-        v0, v1 = edge.vertices
-        length = (mesh.vertices[v0].co - mesh.vertices[v1].co).length
+    # 网格中真实存在的边（用来排除环上并不存在的顶点对）
+    edge_keys = {get_edge_key(*edge.vertices) for edge in mesh.edges}
 
-        key = get_edge_key(v0, v1)
-        edge_lengths[key] = length
-
-    # 环 -> 环长
     ring_lengths = {}
     for ring in rings:
         total_length = 0.0
+        count = len(ring)
 
-        for i in range(len(ring)):
+        for i in range(count):
             v0 = ring[i]
-            v1 = ring[(i + 1) % len(ring)]
-            total_length += edge_lengths.get(get_edge_key(v0, v1), 0.0)
+            v1 = ring[(i + 1) % count]
+            if get_edge_key(v0, v1) not in edge_keys:
+                continue
+            total_length += (mesh.vertices[v0].co - mesh.vertices[v1].co).length
 
         ring_lengths[tuple(ring)] = total_length
 
@@ -853,16 +799,16 @@ def deselect_verts(obj):
 
 
 def get_ring_edge_length(obj, ring_verts):
-    """计算指定顶点圈的总边长"""
-    with bmesh_from_mesh(obj.data) as bm:
-        bm.verts.ensure_lookup_table()
-        bm.edges.ensure_lookup_table()
+    """计算指定顶点圈的总边长（直接读网格边，避免 bmesh 往返）"""
+    mesh = obj.data
+    ring = set(ring_verts)
 
-        total = sum(
-            e.calc_length() for e in bm.edges
-            if e.verts[0].index in ring_verts and e.verts[1].index in ring_verts
-        )
-        return total
+    total = 0.0
+    for edge in mesh.edges:
+        v0, v1 = edge.vertices
+        if v0 in ring and v1 in ring:
+            total += (mesh.vertices[v0].co - mesh.vertices[v1].co).length
+    return total
 
 
 def island_min_distance(island_a, island_b, near_dist=None):
@@ -2049,7 +1995,7 @@ def get_breast_cleavage(max_x, breast_verts, other_island_verts):
 
     return None, best_cleavage_vert
 
-
+@timeit
 def has_overlapping_faces_with_opposite_normals(obj_verts_map):
     """检查网格物体是否存在重合且法向相反的面"""
     source_faces = {}
