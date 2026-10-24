@@ -113,20 +113,14 @@ def import_pmx(filepath: str) -> bool:
     for attempt in range(MAX_RETRIES):
         try:
             bpy.ops.mmd_tools.import_model('EXEC_DEFAULT', **params)
-            print(bpy.app.translations.pgettext_iface(
-                f"Import successful, file: {filepath}, retry count: {attempt}"
-            ))
+            print(f"导入成功，文件：{filepath}，重试次数：{attempt}")
             return True
         except Exception as e:
-            print(bpy.app.translations.pgettext_iface(
-                f"Import failed, retrying soon, file: {filepath}, error: {e}"
-            ))
+            print(f"导入失败，即将重试，文件：{filepath}，错误：{e}")
             time.sleep(RETRY_DELAY)
 
     # 所有重试均失败
-    raise Exception(bpy.app.translations.pgettext_iface(
-        f"Continuous import error, please check. File path: {filepath}"
-    ))
+    raise Exception(f"持续导入异常，请检查。文件路径：{filepath}")
 
 
 def export_pmx(filepath: str) -> bool:
@@ -139,20 +133,14 @@ def export_pmx(filepath: str) -> bool:
     for attempt in range(MAX_RETRIES):
         try:
             bpy.ops.mmd_tools.export_pmx('EXEC_DEFAULT', **params)
-            print(bpy.app.translations.pgettext_iface(
-                f"Export successful, file: {filepath}, retry count: {attempt}"
-            ))
+            print(f"导出成功，文件：{filepath}，重试次数：{attempt}")
             return True
         except Exception as e:
-            print(bpy.app.translations.pgettext_iface(
-                f"Export failed, retrying soon, file: {filepath}, error: {e}"
-            ))
+            print(f"导出失败，即将重试，文件：{filepath}，错误：{e}")
             time.sleep(RETRY_DELAY)
 
     # 全部重试失败后抛出异常
-    raise Exception(bpy.app.translations.pgettext_iface(
-        f"Continuous export error, please check. File path: {filepath}"
-    ))
+    raise Exception(f"持续导出异常，请检查。文件路径：{filepath}")
 
 
 def snapshot_data_blocks():

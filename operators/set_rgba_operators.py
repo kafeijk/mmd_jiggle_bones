@@ -1228,9 +1228,8 @@ def recursive_search(props):
 
         results.extend(os.path.join(root, f) for f in selected)
 
-    msg = bpy.app.translations.pgettext_iface("Actual files to process: {}. Total files: {}, skipped: {}").format(
-        len(results), total_pmx_count, total_pmx_count - len(results)
-    )
+    msg = (f"实际待处理数量：{len(results)}。"
+           f"文件总数：{total_pmx_count}，跳过数量：{total_pmx_count - len(results)}")
     print(msg)
     return results
 
