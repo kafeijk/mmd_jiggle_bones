@@ -247,7 +247,10 @@ class SetRgbaOperator(bpy.types.Operator):
             raise
         finally:
             try:
-                clean_tmp_collection(getattr(self, "data_snapshot", None))
+                clean_temp_data(
+                    TMP_COLLECTION_NAME,
+                    snapshot=getattr(self, "data_snapshot", None),
+                )
             except Exception:
                 traceback.print_exc()
 
@@ -443,7 +446,7 @@ def analyze_breast(root, extra_bones):
         analysis_result, _, _ = filter_results(results)
         return None, analysis_result
     finally:
-        clean_collection([TMP_ANALYSIS_COLLECTION_NAME])
+        clean_temp_data([TMP_ANALYSIS_COLLECTION_NAME])
 
 
 def set_joint_limits(joint_parent, props, result=None):
@@ -1025,39 +1028,6 @@ def get_physical_bone(root):
             continue
         bl_names.append(rigidbody.mmd_rigid.bone)
     return bl_names
-
-
-def clean_tmp_collection(snapshot=None):
-    if TMP_COLLECTION_NAME in bpy.data.collections:
-        collection = bpy.data.collections[TMP_COLLECTION_NAME]
-        # 遍历集合中的所有对象
-        for obj in list(collection.objects):
-            # 从集合中移除对象
-            collection.objects.unlink(obj)
-            # 从场景中删除对象
-            bpy.data.objects.remove(obj, do_unlink=True)
-        # 删除临时集合
-        bpy.data.collections.remove(collection)
-
-    # 删除由导入pmx生成的文本（防止找不到脚本）
-    text_to_delete_list = []
-    for text in bpy.data.texts:
-        text_name = text.name
-        match = TXT_INFO_PATTERN.match(text_name)
-        if match is not None:
-            base_text_name = match.group(1)
-            if match.group(3) is not None:
-                base_text_name = base_text_name + match.group(3)
-            base_text = bpy.data.texts.get(base_text_name, None)
-            if base_text is not None:
-                text_to_delete_list.append(base_text)
-                text_to_delete_list.append(text)
-    for text_to_delete in text_to_delete_list:
-        bpy.data.texts.remove(text_to_delete, do_unlink=True)
-
-    # 只清理本次新增的无用户数据块，避免影响用户已有数据
-    if snapshot is not None:
-        purge_new_orphan_data(snapshot)
 
 
 def apply_transform_to_objects(objects, trans):

@@ -12,9 +12,6 @@ MAX_RETRIES = 5
 TMP_COLLECTION_NAME = "KAFEI临时集合"
 # 分析临时集合名称
 TMP_ANALYSIS_COLLECTION_NAME = "尺码分析临时集合"
-# 导入pmx生成的txt文件pattern
-TXT_INFO_PATTERN = re.compile(r'(.*)(_e(\.\d{3})?)$')
-
 BREAST_BL_NAME_L = "胸.L"
 BREAST_BL_NAME_R = "胸.R"
 BREAST_JP_NAME_L = "左胸"
@@ -280,7 +277,6 @@ def import_pmx(filepath: str) -> bool:
             print(bpy.app.translations.pgettext_iface(
                 f"Import failed, retrying soon, file: {filepath}, error: {e}"
             ))
-            clean_scene()
             time.sleep(1)
 
     # 所有重试均失败
@@ -325,6 +321,7 @@ TRACKED_DATA_BLOCK_TYPES = (
     "actions",
     "node_groups",
     "shape_keys",
+    "texts",
 )
 
 
@@ -344,7 +341,7 @@ def snapshot_data_blocks():
 
 
 def purge_new_orphan_data(snapshot):
-    """只删除快照之后新增且无用户的数据块，避免误删用户已有数据"""
+    """只删除快照之后新增的数据块，避免误删用户已有数据"""
     if not snapshot:
         return
 
@@ -352,6 +349,13 @@ def purge_new_orphan_data(snapshot):
         blocks = getattr(bpy.data, name)
         for block in list(blocks):
             if block.as_pointer() in before:
+                continue
+            # 本次操作新增的文本均为导入产物，直接删除（Text 默认带 fake user）
+            if name == "texts":
+                try:
+                    blocks.remove(block)
+                except Exception:
+                    pass
                 continue
             if block.users != 0:
                 continue
@@ -361,36 +365,6 @@ def purge_new_orphan_data(snapshot):
                 blocks.remove(block)
             except Exception:
                 pass
-
-
-def clean_scene():
-    # 删除由导入pmx生成的文本（防止找不到脚本）
-    text_to_delete_list = []
-    for text in bpy.data.texts:
-        text_name = text.name
-        match = TXT_INFO_PATTERN.match(text_name)
-        if match is not None:
-            base_text_name = match.group(1)
-            if match.group(3) is not None:
-                base_text_name = base_text_name + match.group(3)
-            base_text = bpy.data.texts.get(base_text_name, None)
-            if base_text is not None:
-                text_to_delete_list.append(base_text)
-                text_to_delete_list.append(text)
-    for text_to_delete in text_to_delete_list:
-        bpy.data.texts.remove(text_to_delete, do_unlink=True)
-
-    # 删除临时集合内所有物体（pmx文件所在集合）
-    if TMP_COLLECTION_NAME in bpy.data.collections:
-        collection = bpy.data.collections[TMP_COLLECTION_NAME]
-        # 遍历集合中的所有对象
-        for obj in list(collection.objects):
-            # 从集合中移除对象
-            collection.objects.unlink(obj)
-            # 从场景中删除对象
-            bpy.data.objects.remove(obj, do_unlink=True)
-        # 删除临时集合
-        bpy.data.collections.remove(collection)
 
 
 def remove_pmx(root):
@@ -636,9 +610,9 @@ def timeit(func):
     return wrapper
 
 
-def clean_collection(collections):
+def clean_temp_data(collections, snapshot=None):
     """
-    清理指定集合中的对象并删除集合。
+    清理指定集合及其对象，并可选清理本次新增的数据块与导入文本。
 
     参数:
         collections:
@@ -646,6 +620,8 @@ def clean_collection(collections):
             - 集合名称(str)
             - 集合对象(bpy.types.Collection)
             - 集合列表(list/tuple)
+        snapshot:
+            操作前记录的数据块快照；提供时只清理本次新增的数据
     """
 
     # 转换为列表
@@ -670,6 +646,10 @@ def clean_collection(collections):
             bpy.data.objects.remove(obj, do_unlink=True)
         # 删除集合
         bpy.data.collections.remove(collection)
+
+    # 只清理本次新增的数据块，避免影响用户已有数据
+    if snapshot is not None:
+        purge_new_orphan_data(snapshot)
 
 
 def restore_selection(selected_objects, active_object):

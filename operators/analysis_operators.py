@@ -1248,7 +1248,7 @@ class AnalysisOperator(bpy.types.Operator):
         self.start_time = time.time()
 
         # 清理上一次执行时保留的临时对象
-        clean_collection([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
+        clean_temp_data([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
         # 记录分析开始前的数据块，后续只清理本次新增的，避免误删用户数据
         self.data_snapshot = snapshot_data_blocks()
 
