@@ -44,6 +44,22 @@ def get_mmd_info(root):
     return armature, objs, joint_parent, rb_parent
 
 
+def format_failed_files(directory, name_msg_map):
+    """生成失败文件报告：默认显示文件名，重名时显示相对路径"""
+    base_names = defaultdict(list)
+    for filepath in name_msg_map:
+        base_names[os.path.splitext(os.path.basename(filepath))[0]].append(filepath)
+
+    duplicated = {base for base, paths in base_names.items() if len(paths) > 1}
+
+    lines = []
+    for filepath, msg in name_msg_map.items():
+        base = os.path.splitext(os.path.basename(filepath))[0]
+        label = os.path.splitext(os.path.relpath(filepath, directory))[0] if base in duplicated else base
+        lines.append(f"{label} - {msg}")
+    return "\n".join(lines)
+
+
 def copy_rb(rb):
     new_mesh = rb.data.copy()
     new_rb = rb.copy()
@@ -173,10 +189,8 @@ class SetRgbaOperator(bpy.types.Operator):
         total_time = time.time() - self.start_time
 
         if self.name_msg_map:
-            combined_msg = "\n".join(
-                f"{name} - {msg}"
-                for name, msg in self.name_msg_map.items()
-            )
+            directory = bpy.path.abspath(props.batch.directory)
+            combined_msg = format_failed_files(directory, self.name_msg_map)
 
             msg = (f"{len(self.file_list) - len(self.name_msg_map)}/{len(self.file_list)} 个文件已处理完成"
                    f"（总耗时 {total_time:.2f}s）。点击查看详细报告 ↑↑↑")
@@ -196,15 +210,15 @@ class SetRgbaOperator(bpy.types.Operator):
 
         filepath = self.file_list[self.file_index]
         file_name = os.path.basename(filepath)
-        name = os.path.splitext(file_name)[0]
 
         try:
-            name, status, msg = self.set_rgba(props, f_path=filepath)
+            # 以完整路径为 key，避免不同目录下的同名文件互相覆盖
+            _, status, msg = self.set_rgba(props, f_path=filepath)
             if status == "ERROR":
-                self.name_msg_map[name] = msg
+                self.name_msg_map[filepath] = msg
         except Exception as e:
             # 单个文件处理失败不中断整批，记录错误后继续处理下一个文件
-            self.name_msg_map[name] = f"处理异常：{e}"
+            self.name_msg_map[filepath] = f"处理异常：{e}"
             print(f'文件“{file_name}”处理异常：{e}')
         finally:
             self.file_index += 1
