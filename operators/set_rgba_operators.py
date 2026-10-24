@@ -270,6 +270,8 @@ class SetRgbaOperator(bpy.types.Operator):
         import_pmx(filepath)
         root = bpy.context.active_object
         armature, objs, joint_parent, rb_parent = get_mmd_info(root)
+        if not objs:
+            return name, "ERROR", "源模型中未找到网格"
         obj = objs[0]
 
         # 获取源模型胸部骨骼列表
@@ -287,11 +289,13 @@ class SetRgbaOperator(bpy.types.Operator):
             return name, "ERROR", f"源模型中胸部顶点权重均为0，无法获取有效胸部网格范围"
         influenced_verts = primary if primary else marginal
 
-        # 校验源模型是否存在名为“上半身2”的骨骼
-        # 存在则代表该模型为符合标准的模型（次标准骨骼在标准骨骼的基础上构建）
-        # 但部分模型存在上半身3的情况，用来控制呼吸的表现等。所以实际胸部的父级不一定为上半身2，也可能是上半身3，也就是“首”的父级
-        if NECK_NAME not in armature.pose.bones:
+        # “首”骨骼及其父级用于确定胸部绑定的身体骨骼
+        neck_bone = armature.data.bones.get(NECK_NAME)
+        if neck_bone is None:
             return name, "ERROR", f"源模型中未找到名称为“{NECK_NAME}”的骨骼"
+        if neck_bone.parent is None:
+            return name, "ERROR", f"“{NECK_NAME}”骨骼缺少父级骨骼"
+        target_upper_body_name = neck_bone.parent.name
 
         # 部分模型（如武器模型）可能仅包含骨骼，未定义刚体和关节。
         # 但部分角色类型模型也可能缺少刚体/关节配置，导致rb_parent或joint_parent为空，进而影响后续处理流程。
@@ -306,9 +310,6 @@ class SetRgbaOperator(bpy.types.Operator):
             _, _, joint_parent, rb_parent = get_mmd_info(root)
             show_object(joint_parent)
             show_object(rb_parent)
-
-        neck_bone = armature.data.bones.get(NECK_NAME)
-        target_upper_body_name = neck_bone.parent.name
 
         # 获取源模型“物理”显示枠索引
         frames = root.mmd_root.display_item_frames
