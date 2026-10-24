@@ -11,6 +11,7 @@ import bpy_extras.mesh_utils
 from mathutils import Vector
 
 from ..constants import (
+    ADDON_ID_PREFIX,
     ANALYSIS_THRESHOLDS, BUST_LINE_MAX_ITER, COORD_ROUND_DIGITS,
     BASEBODY_TMP_OBJ_NAME, BREAST_BL_NAME_L, BREAST_BL_NAME_R, CUP_LIST,
     DEFAULT_TMP_OBJ_NAME, LINKED_FACES_THRESHOLD, MAX_RING_COUNT,
@@ -1158,7 +1159,7 @@ def get_max_min_z(copied_source_objs, vg_names):
 
 
 class AnalysisOperator(bpy.types.Operator):
-    bl_idname = "mmd_jiggle_tools.analysis"  # 引用时的唯一标识符
+    bl_idname = f"{ADDON_ID_PREFIX}.analysis"  # 引用时的唯一标识符
     bl_label = "执行"  # 显示名称（F3搜索界面，不过貌似需要注册，和panel中显示的内容区别开）
     bl_options = {'REGISTER', 'UNDO'}  # 启用撤销功能
 

@@ -1,8 +1,10 @@
 import bpy
 
+from ..constants import ADDON_ID_PREFIX
+
 
 class GetSelectedBoneNameOperator(bpy.types.Operator):
-    bl_idname = "mmd_kafei_tools.get_selected_bone_name"
+    bl_idname = f"{ADDON_ID_PREFIX}.get_selected_bone_name"
     bl_label = "获取选中骨骼名称"
     bl_description ="获取选中骨骼名称并填充到参数中（支持物体模式、姿态模式和编辑模式）\n请按需选择需要获取的骨骼"
     bl_options = {'REGISTER', 'UNDO'}

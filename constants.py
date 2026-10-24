@@ -1,6 +1,11 @@
 import math
 import re
 
+# 插件 ID 前缀，Operator 的 bl_idname 统一使用该前缀
+ADDON_ID_PREFIX = "mmd_jiggle_bones"
+# Panel 的 bl_idname 前缀，Blender 要求 Panel 的 id 前缀全大写
+PANEL_ID_PREFIX = ADDON_ID_PREFIX.upper() + "_PT"
+
 # 最大重试次数
 MAX_RETRIES = 5
 # 导入/导出失败后的重试间隔（秒）

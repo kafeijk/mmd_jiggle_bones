@@ -1,5 +1,6 @@
 import bpy
 
+from ..constants import PANEL_ID_PREFIX
 from ..operators.set_rgba_operators import SetRgbaOperator
 from ..operators.analysis_operators import AnalysisOperator
 from ..operators.utility_operators import GetSelectedBoneNameOperator
@@ -17,7 +18,7 @@ def _get_addon_version():
 
 
 class RGBAPanel(bpy.types.Panel):
-    bl_idname = "RGBA_PT_rgba"
+    bl_idname = f"{PANEL_ID_PREFIX}_rgba"
     bl_label = "RGBA式胸部物理移植"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'  # N面板
@@ -122,7 +123,7 @@ class RGBAPanel(bpy.types.Panel):
 
 
 class AnalysisPanel(bpy.types.Panel):
-    bl_idname = "RGBA_PT_analysis"
+    bl_idname = f"{PANEL_ID_PREFIX}_analysis"
     bl_label = "胸部尺码分析"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -158,7 +159,7 @@ class AnalysisPanel(bpy.types.Panel):
 
 
 class AboutPanel(bpy.types.Panel):
-    bl_idname = "RGBA_PT_about"
+    bl_idname = f"{PANEL_ID_PREFIX}_about"
     bl_label = "About"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'  # N面板

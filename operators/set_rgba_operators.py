@@ -19,6 +19,7 @@ from .analysis_operators import process_source_objs
 from .analysis_operators import validate_analysis_param
 from ..mmd_utils import FnModel
 from ..constants import (
+    ADDON_ID_PREFIX,
     BREAST_BL_NAME_L, BREAST_BL_NAME_R, BREAST_JP_NAME_L, BREAST_JP_NAME_R,
     BREAST_RB_PATTERN, COLLISION_SUFFIX, CUP_LIST, INVALID_CHARS, LIMB_RB_GROUP,
     LIMB_RB_NAMES, MODEL_SCALE, NECK_NAME, ORDER_PREFIX_BASE, ORDER_PREFIX_START,
@@ -87,7 +88,7 @@ def set_sensitivity(rb_parent, props):
 
 
 class SetRgbaOperator(bpy.types.Operator):
-    bl_idname = "mmd_jiggle_tools.set_rgba"
+    bl_idname = f"{ADDON_ID_PREFIX}.set_rgba"
     bl_label = "Execute"
 
     bl_description = (
