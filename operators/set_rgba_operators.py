@@ -1218,7 +1218,8 @@ def recursive_search(props):
         selected = []
         processed_pattern = re.compile(r'^(.+)' + suffix + r'.*')
         for f in pmx_files:
-            if os.path.getsize(os.path.join(root, f)) <= threshold:
+            # 阈值单位为 KB，getsize 返回字节
+            if os.path.getsize(os.path.join(root, f)) <= threshold * 1024:
                 continue
             name_no_ext, ext = os.path.splitext(f)
             m = processed_pattern.match(name_no_ext)
