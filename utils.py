@@ -9,7 +9,7 @@ import bpy
 # 最大重试次数
 MAX_RETRIES = 5
 # 临时集合名称
-TMP_COLLECTION_NAME = "KAFEI临时集合"
+TMP_COLLECTION_NAME = "胸部物理移植临时集合"
 # 分析临时集合名称
 TMP_ANALYSIS_COLLECTION_NAME = "尺码分析临时集合"
 BREAST_BL_NAME_L = "胸.L"
