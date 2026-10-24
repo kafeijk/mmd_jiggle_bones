@@ -232,6 +232,24 @@ class SetRgbaOperator(bpy.types.Operator):
         return True
 
     def set_rgba(self, props, f_path=None):
+        """处理单个模型；无论成功、提前返回还是异常，都清理本次产生的临时数据"""
+        try:
+            return self._set_rgba_impl(props, f_path)
+        except Exception:
+            # 异常时先退出编辑/姿态模式，保证临时对象可以安全删除
+            try:
+                deselect_all_objects()
+            except Exception:
+                pass
+            # 继续向上抛
+            raise
+        finally:
+            try:
+                clean_tmp_collection()
+            except Exception:
+                traceback.print_exc()
+
+    def _set_rgba_impl(self, props, f_path=None):
         rb_scale_factor = round_to_two_decimals(props.rb_scale_factor)
         filepath = f_path
 
@@ -255,7 +273,6 @@ class SetRgbaOperator(bpy.types.Operator):
         # 获取源模型胸部骨骼列表
         breast_bones_map = get_breast_bones_map(armature, props.extra_bones_str)
         if not breast_bones_map:
-            clean_tmp_collection()
             return name, "ERROR", "源模型中未找到胸部骨骼"
         breast_bones = next(iter(breast_bones_map.values()))
         breast_names = [b.name for b in breast_bones]
@@ -265,7 +282,6 @@ class SetRgbaOperator(bpy.types.Operator):
         # 从源模型胸部顶点中筛选权重大于WEIGHT_THRESHOLD的顶点，作为胸部网格范围，用于定位伪胸部骨骼的坐标
         primary, marginal = get_vertices_influenced_by_bones(obj, [b.name for b in breast_bones])
         if not primary and not marginal:
-            clean_tmp_collection()
             return name, "ERROR", f"源模型中胸部顶点权重均为0，无法获取有效胸部网格范围"
         influenced_verts = primary if primary else marginal
 
@@ -273,7 +289,6 @@ class SetRgbaOperator(bpy.types.Operator):
         # 存在则代表该模型为符合标准的模型（次标准骨骼在标准骨骼的基础上构建）
         # 但部分模型存在上半身3的情况，用来控制呼吸的表现等。所以实际胸部的父级不一定为上半身2，也可能是上半身3，也就是“首”的父级
         if NECK_NAME not in armature.pose.bones:
-            clean_tmp_collection()
             return name, "ERROR", f"源模型中未找到名称为“{NECK_NAME}”的骨骼"
 
         # 部分模型（如武器模型）可能仅包含骨骼，未定义刚体和关节。
@@ -317,11 +332,9 @@ class SetRgbaOperator(bpy.types.Operator):
         # 获取RGBA胸部中左右胸骨
         bone_l = armature_l.pose.bones.get(BREAST_BL_NAME_L)
         if not bone_l:
-            clean_tmp_collection()
             raise RuntimeError(f"未在胸部素材中找到{BREAST_BL_NAME_L}骨骼")
         bone_r = armature_r.pose.bones.get(BREAST_BL_NAME_R)
         if not bone_r:
-            clean_tmp_collection()
             raise RuntimeError(f"未在胸部素材中找到{BREAST_BL_NAME_R}骨骼")
 
         # 获取伪胸部骨骼的坐标
@@ -400,41 +413,38 @@ class SetRgbaOperator(bpy.types.Operator):
 
         export_pmx(new_filepath)
 
-        # 删除临时集合内所有物体
-        clean_tmp_collection()
-
         return name, "INFO", f"执行完成，模型文件地址：{new_filepath}"
 
 
 def analyze_breast(root, extra_bones):
-    deselect_all_objects()
-    select_and_activate(root)
+    """分析胸部尺码；无论成功还是失败，都清理分析用的临时集合"""
+    try:
+        deselect_all_objects()
+        select_and_activate(root)
 
-    # 校验参数
-    err_msg, data = validate_analysis_param(root, extra_bones)
-    if err_msg:
-        return err_msg, None
+        # 校验参数
+        err_msg, data = validate_analysis_param(root, extra_bones)
+        if err_msg:
+            return err_msg, None
 
-    # 预处理
-    source_objs = data["source_objs"]
-    preprocess(root, source_objs)
+        # 预处理
+        source_objs = data["source_objs"]
+        preprocess(root, source_objs)
 
-    # 复制对象并进行切割，减少后续处理耗时
-    # 重映射胸部权重，提高胸部边缘区域权重，从而提升尺码选择时的准确率
-    process_source_objs(data)
-    copied_obj_vgs_map = data["copied_obj_vgs_map"]
+        # 复制对象并进行切割，减少后续处理耗时
+        # 重映射胸部权重，提高胸部边缘区域权重，从而提升尺码选择时的准确率
+        process_source_objs(data)
+        copied_obj_vgs_map = data["copied_obj_vgs_map"]
 
-    results = batch_do_analysis(copied_obj_vgs_map, "DEFAULT")
-    if all(r.status != AnalysisStatus.OK for r in results):
-        msg = build_all_failed_msg(results)
-        return msg, None
+        results = batch_do_analysis(copied_obj_vgs_map, "DEFAULT")
+        if all(r.status != AnalysisStatus.OK for r in results):
+            msg = build_all_failed_msg(results)
+            return msg, None
 
-    analysis_result, _, _ = filter_results(results)
-
-    # 删除临时对象
-    clean_collection([TMP_ANALYSIS_COLLECTION_NAME])
-
-    return None, analysis_result
+        analysis_result, _, _ = filter_results(results)
+        return None, analysis_result
+    finally:
+        clean_collection([TMP_ANALYSIS_COLLECTION_NAME])
 
 
 def set_joint_limits(joint_parent, props, result=None):
