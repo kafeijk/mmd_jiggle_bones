@@ -140,6 +140,9 @@ MAX_RING_COUNT = 10
 # 最大搜索次数
 MAX_SEARCH_COUNT = 100000
 
+# 胸部分析阈值序列
+ANALYSIS_THRESHOLDS = (0.25, 0.2, 0.15, 0.1, 0.05, 0)
+
 # 修正乳首时，顶点关联面的角度超出何种范围时判定为有问题
 LINKED_FACES_THRESHOLD = math.radians(130)  # 100度仍不保守，调整至120度，如雷电将军 调整至130度，如苔丝_绮幻
 

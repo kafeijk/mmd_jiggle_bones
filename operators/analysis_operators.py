@@ -11,6 +11,7 @@ import bpy_extras.mesh_utils
 from mathutils import Vector
 
 from ..constants import (
+    ANALYSIS_THRESHOLDS,
     BASEBODY_TMP_OBJ_NAME, BREAST_BL_NAME_L, BREAST_BL_NAME_R, CUP_LIST,
     DEFAULT_TMP_OBJ_NAME, LINKED_FACES_THRESHOLD, MAX_RING_COUNT,
     MAX_SEARCH_COUNT, STANDARD_CUP_LIST, TMP_ANALYSIS_COLLECTION_NAME,
@@ -1226,7 +1227,7 @@ class AnalysisOperator(bpy.types.Operator):
         self.obj_visibility_map = preprocess(self.active_object, self.data["source_objs"])
 
         self.initialized = False
-        self.thresholds = [0.25, 0.2, 0.15, 0.1, 0.05, 0]
+        self.thresholds = ANALYSIS_THRESHOLDS
         self.analysis_index = 0
         self.further_index = 0
         self.results = []
@@ -2290,7 +2291,7 @@ def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None, t
 
 
 def batch_do_analysis(obj_vgs_map, analysis_type):
-    thresholds = [0.25, 0.2, 0.15, 0.1, 0.05, 0]
+    thresholds = ANALYSIS_THRESHOLDS
 
     results = []
     for index, threshold in enumerate(thresholds):
