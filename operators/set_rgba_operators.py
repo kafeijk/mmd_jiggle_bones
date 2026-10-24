@@ -3,7 +3,6 @@ import traceback
 from collections import defaultdict, OrderedDict
 from datetime import datetime
 
-import bmesh
 import mathutils
 from mathutils.bvhtree import BVHTree
 
@@ -1257,12 +1256,9 @@ def round_to_two_decimals(value):
 
 
 def create_bvh_tree_from_object(obj):
-    bm = bmesh.new()
-    bm.from_mesh(obj.data)
-    bm.transform(obj.matrix_world)
-    bvh = BVHTree.FromBMesh(bm)
-    bm.free()
-    return bvh
+    with bmesh_from_mesh(obj.data) as bm:
+        bm.transform(obj.matrix_world)
+        return BVHTree.FromBMesh(bm)
 
 
 def check_bvh_intersection(obj_1, obj_2):

@@ -192,109 +192,106 @@ def process_muti_rings(tmp_obj, loc_z, ref_co, rings):
             idx_rings_map[v_idx].append(ring_idx)
     remove_doubles_between_rings(tmp_obj, idx_rings_map, rings)
 
-    bm = bmesh.new()
-    bm.from_mesh(tmp_obj.data)
-    bm.verts.ensure_lookup_table()
+    with bmesh_from_mesh(tmp_obj.data) as bm:
+        bm.verts.ensure_lookup_table()
 
-    # 获取 z=loc_z 平面上的顶点
-    loc_z_verts = [v for v in bm.verts if v.co.z == loc_z]
-    loc_z_verts = sort_verts(loc_z_verts)
-    # 获取start参考点
-    start_verts = []
-    # 1. 距离 nipple_co / under_co 最近的顶点
-    start_verts.append(min(loc_z_verts, key=lambda v: (v.co - ref_co).length))
-    # 2. 距离 nipple_co / under_co（X 取相反值）最近的顶点
-    mirror_ref_co = ref_co.copy()
-    mirror_ref_co.x *= -1
-    start_verts.append(min(loc_z_verts, key=lambda v: (v.co - mirror_ref_co).length))
-    # 3. Y 最大的顶点
-    start_verts.append(max(loc_z_verts, key=lambda v: v.co.y))
+        # 获取 z=loc_z 平面上的顶点
+        loc_z_verts = [v for v in bm.verts if v.co.z == loc_z]
+        loc_z_verts = sort_verts(loc_z_verts)
+        # 获取start参考点
+        start_verts = []
+        # 1. 距离 nipple_co / under_co 最近的顶点
+        start_verts.append(min(loc_z_verts, key=lambda v: (v.co - ref_co).length))
+        # 2. 距离 nipple_co / under_co（X 取相反值）最近的顶点
+        mirror_ref_co = ref_co.copy()
+        mirror_ref_co.x *= -1
+        start_verts.append(min(loc_z_verts, key=lambda v: (v.co - mirror_ref_co).length))
+        # 3. Y 最大的顶点
+        start_verts.append(max(loc_z_verts, key=lambda v: v.co.y))
 
-    # 交叉点 -> 可能的prev集合
-    x_prevs_map = defaultdict(list)
-    visited = set()
-    for index, start_vert in enumerate(start_verts):
+        # 交叉点 -> 可能的prev集合
+        x_prevs_map = defaultdict(list)
+        visited = set()
+        for index, start_vert in enumerate(start_verts):
 
-        # 初始化遍历参数
-        curr_visited = set()
-        curr = start_vert
-        prev = None
+            # 初始化遍历参数
+            curr_visited = set()
+            curr = start_vert
+            prev = None
 
-        while True:
-            co_key = get_co_key(curr.co)
-            curr_visited.add(co_key)
+            while True:
+                co_key = get_co_key(curr.co)
+                curr_visited.add(co_key)
 
-            # 获取与当前顶点相临且在z=z_max平面上的顶点
-            others = set()
-            for edge in get_sorted_link_edges(curr):
-                other = edge.other_vert(curr)
-                if other.co.z != loc_z:
+                # 获取与当前顶点相临且在z=z_max平面上的顶点
+                others = set()
+                for edge in get_sorted_link_edges(curr):
+                    other = edge.other_vert(curr)
+                    if other.co.z != loc_z:
+                        continue
+                    others.add(other)
+
+                # 如果符合条件的相邻顶点数量大于2，则表示环与环之间发生交叉
+                if len(others) > 2:
+
+                    if not prev:
+                        # 胸部结构复杂
+                        return AnalysisStatus.BREAST_MESH_COMPLEX, None
+
+                    # 发生交叉的前一个顶点 -> 交叉点
+                    x_prevs_map[get_co_key(curr.co)].append(get_co_key(prev.co))
+
+                    # 重置遍历参数，访问另一侧
+                    curr = start_vert
+
+                # 找下一个相邻点
+                next_vert = None
+                for edge in get_sorted_link_edges(curr):
+                    other = edge.other_vert(curr)
+                    # 排除不在z=z_max上的顶点
+                    if other.co.z != loc_z:
+                        continue
+                    # 排除已访问过的顶点
+                    if get_co_key(other.co) in curr_visited:
+                        continue
+                    next_vert = other
+                    break
+
+                # 达成闭环，结束遍历
+                if next_vert is None:
+                    visited.update(curr_visited)
+                    break
+
+                # 继续遍历
+                prev = curr
+                curr = next_vert
+
+    with bmesh_from_mesh(tmp_obj.data) as bm:
+        bm.verts.ensure_lookup_table()
+
+        for x_co, prev_cos in x_prevs_map.items():
+            if len(prev_cos) == 2:
+                prev0 = next((v for v in bm.verts if get_co_key(v.co) == get_co_key(prev_cos[0])), None)
+                prev1 = next((v for v in bm.verts if get_co_key(v.co) == get_co_key(prev_cos[1])), None)
+                # 胸部网格结构复杂时，可能会出现相等的情况，直接continue
+                if prev0 == prev1:
                     continue
-                others.add(other)
+                # 添加边
+                if bm.edges.get((prev0, prev1)) is None:
+                    bm.edges.new((prev0, prev1))
+                    bm.faces.ensure_lookup_table()
+                    bm.edges.ensure_lookup_table()
+                    bm.verts.ensure_lookup_table()
+        x_verts = [v for v in bm.verts if get_co_key(v.co) in x_prevs_map]
+        bmesh.ops.delete(bm, geom=x_verts, context='VERTS')
+        bm.faces.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
 
-            # 如果符合条件的相邻顶点数量大于2，则表示环与环之间发生交叉
-            if len(others) > 2:
+        verts = [v.index for v in bm.verts if get_co_key(v.co) in visited]
 
-                if not prev:
-                    # 胸部结构复杂
-                    return AnalysisStatus.BREAST_MESH_COMPLEX, None
-
-                # 发生交叉的前一个顶点 -> 交叉点
-                x_prevs_map[get_co_key(curr.co)].append(get_co_key(prev.co))
-
-                # 重置遍历参数，访问另一侧
-                curr = start_vert
-
-            # 找下一个相邻点
-            next_vert = None
-            for edge in get_sorted_link_edges(curr):
-                other = edge.other_vert(curr)
-                # 排除不在z=z_max上的顶点
-                if other.co.z != loc_z:
-                    continue
-                # 排除已访问过的顶点
-                if get_co_key(other.co) in curr_visited:
-                    continue
-                next_vert = other
-                break
-
-            # 达成闭环，结束遍历
-            if next_vert is None:
-                visited.update(curr_visited)
-                break
-
-            # 继续遍历
-            prev = curr
-            curr = next_vert
-
-    bm = bmesh.new()
-    bm.from_mesh(tmp_obj.data)
-    bm.verts.ensure_lookup_table()
-
-    for x_co, prev_cos in x_prevs_map.items():
-        if len(prev_cos) == 2:
-            prev0 = next((v for v in bm.verts if get_co_key(v.co) == get_co_key(prev_cos[0])), None)
-            prev1 = next((v for v in bm.verts if get_co_key(v.co) == get_co_key(prev_cos[1])), None)
-            # 胸部网格结构复杂时，可能会出现相等的情况，直接continue
-            if prev0 == prev1:
-                continue
-            # 添加边
-            if bm.edges.get((prev0, prev1)) is None:
-                bm.edges.new((prev0, prev1))
-                bm.faces.ensure_lookup_table()
-                bm.edges.ensure_lookup_table()
-                bm.verts.ensure_lookup_table()
-    x_verts = [v for v in bm.verts if get_co_key(v.co) in x_prevs_map]
-    bmesh.ops.delete(bm, geom=x_verts, context='VERTS')
-    bm.faces.ensure_lookup_table()
-    bm.edges.ensure_lookup_table()
-    bm.verts.ensure_lookup_table()
-
-    verts = [v.index for v in bm.verts if get_co_key(v.co) in visited]
-
-    bm.to_mesh(tmp_obj.data)
-    tmp_obj.data.update()
-    bm.free()
+        bm.to_mesh(tmp_obj.data)
+        tmp_obj.data.update()
 
     return None, verts
 
@@ -2096,30 +2093,28 @@ def has_overlapping_faces_with_opposite_normals(obj_verts_map):
     for obj, verts in obj_verts_map.items():
         vert_indices = {v.index for v in verts}
 
-        bm = bmesh.new()
-        bm.from_mesh(obj.data)
-        bm.verts.ensure_lookup_table()
+        with bmesh_from_mesh(obj.data) as bm:
+            bm.verts.ensure_lookup_table()
 
-        for face in bm.faces:
-            # 仅处理所有顶点都在指定 verts 中的面
-            if not all(v.index in vert_indices for v in face.verts):
-                continue
+            for face in bm.faces:
+                # 仅处理所有顶点都在指定 verts 中的面
+                if not all(v.index in vert_indices for v in face.verts):
+                    continue
 
-            sorted_verts = sort_verts(face.verts)
-            face_key = tuple(get_co_key(v.co) for v in sorted_verts)
+                sorted_verts = sort_verts(face.verts)
+                face_key = tuple(get_co_key(v.co) for v in sorted_verts)
 
-            # 当前面的法向
-            normal_key = get_co_key(face.normal)
+                # 当前面的法向
+                normal_key = get_co_key(face.normal)
 
-            if face_key in source_faces:
-                old_normal_key = source_faces[face_key]
+                if face_key in source_faces:
+                    old_normal_key = source_faces[face_key]
 
-                # 法向相反
-                if old_normal_key == tuple(-v for v in normal_key):
-                    return True
-            else:
-                source_faces[face_key] = normal_key
-        bm.free()
+                    # 法向相反
+                    if old_normal_key == tuple(-v for v in normal_key):
+                        return True
+                else:
+                    source_faces[face_key] = normal_key
     return False
 
 
@@ -2156,53 +2151,48 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type):
     # 创建临时胸部对象
     tmp_col, tmp_obj, temp_mesh = create_tmp_obj(obj_verts_map, tmp_obj_name=DEFAULT_TMP_OBJ_NAME)
 
-    bm = bmesh.new()
-    bm.from_mesh(temp_mesh)
-    bm.faces.ensure_lookup_table()
-    bm.edges.ensure_lookup_table()
-    bm.verts.ensure_lookup_table()
+    with bmesh_from_mesh(temp_mesh) as bm:
+        bm.faces.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
 
-    # 获取参考顶点所在松散块
-    status, boundary, breast_verts, other_island_verts = get_best_island(bm)
-    if status in (AnalysisStatus.NO_ISLANDS, AnalysisStatus.NO_BOUNDARY):
-        tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
-        return AnalysisResult(status=status, msg=status.msg, threshold=threshold, tmp_obj=tmp_obj)
+        # 获取参考顶点所在松散块
+        status, boundary, breast_verts, other_island_verts = get_best_island(bm)
+        if status in (AnalysisStatus.NO_ISLANDS, AnalysisStatus.NO_BOUNDARY):
+            tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
+            return AnalysisResult(status=status, msg=status.msg, threshold=threshold, tmp_obj=tmp_obj)
 
-    # 获取胸部宽度
-    positive_x = [v.co.x for v in breast_verts if v.co.x >= 0]
-    if not positive_x:
-        bm.free()
-        tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
-        return AnalysisResult(status=AnalysisStatus.NO_BREAST_WIDTH,
-                              msg=AnalysisStatus.NO_BREAST_WIDTH.msg,
-                              threshold=threshold, tmp_obj=tmp_obj)
-    max_x = max(positive_x)
+        # 获取胸部宽度
+        positive_x = [v.co.x for v in breast_verts if v.co.x >= 0]
+        if not positive_x:
+            tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
+            return AnalysisResult(status=AnalysisStatus.NO_BREAST_WIDTH,
+                                  msg=AnalysisStatus.NO_BREAST_WIDTH.msg,
+                                  threshold=threshold, tmp_obj=tmp_obj)
+        max_x = max(positive_x)
 
-    # 获取胸部下侧参考顶点（松散块中，z最小且位于边界边上、且位于胸部内侧的点）。
-    lower = get_breast_lower(max_x, boundary)
-    if lower is None:
-        bm.free()
-        tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
-        return AnalysisResult(status=AnalysisStatus.NO_BREAST_LOWER,
-                              msg=AnalysisStatus.NO_BREAST_LOWER.msg,
-                              threshold=threshold, tmp_obj=tmp_obj)
-    lower_co = lower.co
+        # 获取胸部下侧参考顶点（松散块中，z最小且位于边界边上、且位于胸部内侧的点）。
+        lower = get_breast_lower(max_x, boundary)
+        if lower is None:
+            tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
+            return AnalysisResult(status=AnalysisStatus.NO_BREAST_LOWER,
+                                  msg=AnalysisStatus.NO_BREAST_LOWER.msg,
+                                  threshold=threshold, tmp_obj=tmp_obj)
+        lower_co = lower.co
 
-    # 获取胸部前侧参考顶点并修正
-    status, nipple, breast_verts = get_breast_nipple(bm, tmp_obj, breast_verts, lower, other_island_verts,
-                                                     analysis_type)
-    if status == AnalysisStatus.NO_BREAST_VERTS_AFTER_DELETE_INVALID:
-        tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
-        return AnalysisResult(status=status, msg=status.msg, threshold=threshold, tmp_obj=tmp_obj)
-    nipple_co = nipple.co
+        # 获取胸部前侧参考顶点并修正
+        status, nipple, breast_verts = get_breast_nipple(bm, tmp_obj, breast_verts, lower, other_island_verts,
+                                                         analysis_type)
+        if status == AnalysisStatus.NO_BREAST_VERTS_AFTER_DELETE_INVALID:
+            tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
+            return AnalysisResult(status=status, msg=status.msg, threshold=threshold, tmp_obj=tmp_obj)
+        nipple_co = nipple.co
 
-    # 获取胸部内侧顶点，没有也无所谓
-    inner_co = None
-    status, inner_vert = get_breast_cleavage(max_x, breast_verts, other_island_verts)
-    if inner_vert:
-        inner_co = inner_vert.co
-
-    bm.free()
+        # 获取胸部内侧顶点，没有也无所谓
+        inner_co = None
+        status, inner_vert = get_breast_cleavage(max_x, breast_verts, other_island_verts)
+        if inner_vert:
+            inner_co = inner_vert.co
 
     lower_nipple_diff_y = (lower_co.y - nipple_co.y) * 2 * 100
     cup, cup_index = next((c, i) for i, (limit, c) in enumerate(CUP_LIST) if lower_nipple_diff_y < limit)

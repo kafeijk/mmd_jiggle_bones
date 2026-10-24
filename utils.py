@@ -2,8 +2,10 @@ import functools
 import math
 import re
 import time
+from contextlib import contextmanager
 
 import addon_utils
+import bmesh
 import bpy
 
 # 最大重试次数
@@ -254,6 +256,17 @@ def set_visibility(obj, visibility):
     obj.hide_viewport = visibility[2]
     # 是否在渲染中禁用
     obj.hide_render = visibility[3]
+
+
+@contextmanager
+def bmesh_from_mesh(mesh):
+    """从 Mesh 创建 bmesh，退出时自动释放"""
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    try:
+        yield bm
+    finally:
+        bm.free()
 
 
 def import_pmx(filepath: str) -> bool:
