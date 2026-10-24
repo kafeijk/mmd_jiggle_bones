@@ -1699,7 +1699,8 @@ def preprocess(active_object, source_objs):
     for obj in source_objs:
         select_and_activate(obj)
 
-    # 将选择模式切换为“点”，并清空选择。
+    # 切换为“点”选择模式并清空选择：后续 select_verts 只标出乳首/乳根两个点，
+    # 先清空可避免用户原有的顶点选择混进来
     bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.mesh.select_mode(type='VERT')
     bpy.ops.mesh.select_all(action='DESELECT')
