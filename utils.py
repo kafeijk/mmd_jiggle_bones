@@ -96,7 +96,13 @@ def deselect_all_objects():
     active_object = bpy.context.active_object
     if active_object is not None and active_object.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
-    bpy.ops.object.select_all(action='DESELECT')
+    # 只遍历当前已选对象逐个取消选中：bpy.ops.object.select_all 会触发一次
+    # 视图层更新，在批量流程里（几十次调用）开销明显
+    for obj in list(bpy.context.selected_objects):
+        try:
+            obj.select_set(False)
+        except RuntimeError:  # 物体不在视图层中，无法取消选中
+            pass
     bpy.context.view_layer.objects.active = None
 
 
