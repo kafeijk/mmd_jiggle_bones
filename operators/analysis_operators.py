@@ -14,7 +14,7 @@ from mathutils.kdtree import KDTree
 
 from ..constants import (
     ADDON_ID_PREFIX,
-    ANALYSIS_THRESHOLDS, BUST_LINE_MAX_ITER, COORD_ROUND_DIGITS,
+    ANALYSIS_PREPROCESS_TEXT, ANALYSIS_THRESHOLDS, BUST_LINE_MAX_ITER, COORD_ROUND_DIGITS,
     BASEBODY_TMP_OBJ_NAME, BREAST_BL_NAME_L, BREAST_BL_NAME_R, CUP_LIST,
     DEFAULT_TMP_OBJ_NAME, LINKED_FACES_THRESHOLD, MAX_RING_COUNT,
     MAX_SEARCH_COUNT, STANDARD_CUP_LIST, TASK_ANALYSIS, TIMER_INTERVAL,
@@ -1231,21 +1231,19 @@ class AnalysisOperator(bpy.types.Operator):
         props = scene.mmd_jiggle_tools_analysis
         self.start_time = time.time()
 
-        # 清理上一次执行时保留的临时对象
+        self.active_object = context.active_object
+        self.selected_objects = bpy.context.selected_objects
+
+        # 清理上一次执行时保留的临时对象（在进度条显示之前完成）
         clean_temp_data([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
         # 记录分析开始前的数据块，后续只清理本次新增的，避免误删用户数据
         self.data_snapshot = snapshot_data_blocks()
 
         # 参数校验
-        self.active_object = context.active_object
-        self.selected_objects = bpy.context.selected_objects
         err_msg, self.data = validate_analysis_param(self.active_object, props.extra_bones_str)
         if err_msg:
             self.report({'ERROR'}, err_msg)
             return {'FINISHED'}
-
-        # 预处理
-        preprocess(self.active_object, self.data["source_objs"])
 
         self.initialized = False
         self.thresholds = ANALYSIS_THRESHOLDS
@@ -1258,6 +1256,8 @@ class AnalysisOperator(bpy.types.Operator):
         # 进度更新后是否还要多留一轮 TIMER，让界面把它画出来
         self.hold_progress = False
 
+        # 先显示“预处理中...”，让面板有时间把进度条画完整；
+        # preprocess() 与后续合并网格放到 modal 里执行
         self.update_progress(props, force=True)
         # 防止页面变化
         restore_selection(self.selected_objects, self.active_object)
@@ -1312,7 +1312,7 @@ class AnalysisOperator(bpy.types.Operator):
             return {'RUNNING_MODAL'}
 
         # 进度条所在面板首次展开需要重新布局：先跳过两帧并主动重绘，避免界面来不及画
-        if self.flush_count < 5:
+        if self.flush_count < 2:
             self.flush_count += 1
             tag_redraw(context)
             return {'RUNNING_MODAL'}
@@ -1347,6 +1347,8 @@ class AnalysisOperator(bpy.types.Operator):
         # 复制对象并进行切割，减少后续处理耗时
         # 重映射胸部权重，提高胸部边缘区域权重，从而提升尺码选择时的准确率
         if not self.initialized:
+            # 预处理
+            preprocess(self.active_object, self.data["source_objs"])
             process_source_objs(self.data)
             self.initialized = True
             self.face_cache = collect_face_records(self.data["copied_obj_vgs_map"])
@@ -1449,9 +1451,9 @@ class AnalysisOperator(bpy.types.Operator):
 
     def update_progress(self, props, force=False):
         """更新进度"""
-        # 初始化时，随便赋予个起始值
+        # 预处理阶段还没有百分比，先显示文字
         if force:
-            set_batch_progress(TASK_ANALYSIS, True, 0.05, "进度 5.00%")
+            set_batch_progress(TASK_ANALYSIS, True, 0.0, ANALYSIS_PREPROCESS_TEXT)
             tag_redraw(bpy.context)
             return
 

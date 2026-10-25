@@ -159,6 +159,9 @@ TIMER_INTERVAL = 0.1
 TASK_SET_RGBA = "set_rgba"
 TASK_ANALYSIS = "analysis"
 
+# 分析进度：预处理阶段还没有百分比，先显示该文字
+ANALYSIS_PREPROCESS_TEXT = "预处理中..."
+
 # 顶点坐标比较时的舍入位数
 COORD_ROUND_DIGITS = 6
 

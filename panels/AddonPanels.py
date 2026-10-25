@@ -159,7 +159,7 @@ class AnalysisPanel(bpy.types.Panel):
             # 进度条，Blender 4.0及以上生效
             blender_version = bpy.app.version
             if blender_version >= (4, 0, 0):
-                layout.progress(factor=progress["factor"], type='BAR', text=f"{progress['factor']:.2%}")
+                layout.progress(factor=progress["factor"], type='BAR', text=progress["text"])
             else:
                 layout.label(text=progress["text"])
 
