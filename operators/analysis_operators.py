@@ -319,7 +319,7 @@ def remove_z_verts_except_ring(obj, upper_ring, loc_z):
         mesh.update()
 
 
-def further_process_for_base_body(source_objs, b_names, result, index):
+def further_process_for_base_body(source_objs, b_names, result, index, clean_mesh=True):
     if result.status != AnalysisStatus.OK:
         return
 
@@ -347,7 +347,7 @@ def further_process_for_base_body(source_objs, b_names, result, index):
     # 创建临时对象
     tmp_obj_name = f"{index}_{BASEBODY_TMP_OBJ_NAME}_{result.threshold}_None"
     tmp_col, tmp_obj, temp_mesh = create_tmp_obj(None, delete_unwanted_flag=False, source_objs=source_objs,
-                                                 tmp_obj_name=tmp_obj_name)
+                                                 tmp_obj_name=tmp_obj_name, clean=clean_mesh)
     # 切两刀，获取乳首与乳根中间的部分
     crop_mesh_by_z(tmp_obj, z_min, z_max)
 
@@ -1394,7 +1394,11 @@ class AnalysisOperator(bpy.types.Operator):
                     self.update_progress(props)
                 elif self.further_index < len(self.thresholds):
                     result = self.results[self.further_index]
-                    further_process_for_base_body(copied_source_objs, b_names, result, self.further_index)
+                    # 六档阈值共用同一张源网格：清理只做一次，后续各档直接复制清理后的网格
+                    if self.further_index == 0:
+                        clean_base_body_source(copied_source_objs)
+                    further_process_for_base_body(copied_source_objs, b_names, result, self.further_index,
+                                                  clean_mesh=False)
                     self.further_index += 1
                     self.update_progress(props)
                 else:
@@ -2358,8 +2362,40 @@ def get_breast_lower(max_x, boundary):
     return lower_vert
 
 
-def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None, tmp_obj_name="TMP"):
-    """创建临时胸部对象"""
+def _clean_temp_mesh(mesh):
+    """临时网格的固定清理：合并过近顶点 + 删除共享顶点的重合面"""
+    with bmesh_from_mesh(mesh) as bm:
+        bm.verts.ensure_lookup_table()
+
+        # 按距离合并顶点，防止松散块过多，提高胸部乳首、乳根定位的准确性
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001)
+        # 删除共享顶点的重合面，例如：3个顶点却构成了2个面，防止边界边的获取出现异常（符玄）
+        seen_faces = {}
+        faces_to_delete = []
+        for f in bm.faces:
+            # 用顶点索引的frozenset作为面的唯一标识
+            key = frozenset(v.index for v in f.verts)
+            if key in seen_faces:
+                faces_to_delete.append(f)
+            else:
+                seen_faces[key] = f
+
+        if faces_to_delete:
+            bmesh.ops.delete(bm, geom=faces_to_delete, context='FACES_ONLY')
+        bm.to_mesh(mesh)
+    mesh.update()
+
+
+def clean_base_body_source(copied_source_objs):
+    """素体阶段每档阈值都会复制同一张网格并做清理，这里先对源网格清理一次，
+    后续各档直接复制清理后的网格（与逐档清理的结果一致，省掉重复的 6 次运算）"""
+    for obj in copied_source_objs:
+        _clean_temp_mesh(obj.data)
+
+
+def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None, tmp_obj_name="TMP",
+                   clean=True):
+    """创建临时胸部对象；clean=False 表示源网格已清理过（见 clean_base_body_source）"""
 
     # 获取临时集合，在临时集合中进行模型的处理
     tmp_col = get_collection(TMP_ANALYSIS_COLLECTION_NAME)
@@ -2401,25 +2437,8 @@ def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None, t
         tmp_obj.active_shape_key_index = 0
         bpy.ops.object.shape_key_remove(all=True, apply_mix=True)
 
-    with bmesh_from_mesh(temp_mesh) as bm:
-        bm.verts.ensure_lookup_table()
-
-        # 按距离合并顶点，防止松散块过多，提高胸部乳首、乳根定位的准确性
-        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001)
-        # 删除共享顶点的重合面，例如：3个顶点却构成了2个面，防止边界边的获取出现异常（符玄）
-        seen_faces = {}
-        faces_to_delete = []
-        for f in bm.faces:
-            # 用顶点索引的frozenset作为面的唯一标识
-            key = frozenset(v.index for v in f.verts)
-            if key in seen_faces:
-                faces_to_delete.append(f)
-            else:
-                seen_faces[key] = f
-
-        if faces_to_delete:
-            bmesh.ops.delete(bm, geom=faces_to_delete, context='FACES_ONLY')
-        bm.to_mesh(temp_mesh)
+    if clean:
+        _clean_temp_mesh(temp_mesh)
     return tmp_col, tmp_obj, temp_mesh
 
 
