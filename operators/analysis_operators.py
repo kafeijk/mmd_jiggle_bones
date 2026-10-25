@@ -2087,24 +2087,96 @@ def get_breast_cleavage(max_x, breast_verts, other_island_verts):
 
     return None, best_cleavage_vert
 
+def _chest_candidate_mask(obj, vg_names):
+    """候选顶点掩码：x >= 0 且受指定顶点组影响（权重 > 0）。
+
+    坐标约定（容易混淆，先说明）：
+      - x >= 0 在视线上属于"右侧"，但对应模型自身的**左胸**（胸.L）
+      - x < 0 对应模型自身的右胸（胸.R）
+
+    与 get_verts_influenced_by_bones（right=True 只保留 x >= 0）的筛选口径一致：
+    不满足条件的顶点不会出现在任何一档阈值的胸部顶点集合里，含这类顶点的面
+    也永远不会命中反向面检测。
+    """
+    vgs = obj.vertex_groups
+    target = set()
+    for name in vg_names:
+        vg = vgs.get(name)
+        if vg is not None:
+            target.add(vg.index)
+
+    mesh = obj.data
+    n = len(mesh.vertices)
+    mask = bytearray(n)
+    if not target or not n:
+        return mask
+
+    co = array.array('f', [0.0]) * (n * 3)
+    mesh.vertices.foreach_get("co", co)
+
+    for i, v in enumerate(mesh.vertices):
+        # i * 3：计算当前顶点的 X 坐标在 co 数组中的索引。因为每个顶点占用 3 个数值，分别表示 X、Y、Z。
+        if co[i * 3] < 0:
+            continue  # x < 0 属于视线左侧 / 模型右胸（胸.R），上游不参与分析
+        for g in v.groups:
+            if g.group in target and g.weight > 0:
+                mask[i] = 1
+                break
+    return mask
+
+
 def collect_face_records(obj_vgs_map):
     """一次性收集网格面信息，供多档阈值复用（分析期间源网格不会被修改）。
+
+    只收集"全部顶点都在 x >= 0 一侧且受胸部骨骼影响"的面：
+    反向重合面检测会把顶点集合限定在每档阈值的胸部顶点内，
+    其余面永远不会命中，提前跳过可以省掉大部分坐标键计算与 bmesh 往返。
 
     返回 {obj: [(面顶点索引集合, 坐标键, 法向键), ...]}
     """
     records = {}
-    for obj in obj_vgs_map:
+    for obj, vg_names in obj_vgs_map.items():
         obj_records = []
-        with bmesh_from_mesh(obj.data) as bm:
-            bm.verts.ensure_lookup_table()
-            for face in bm.faces:
-                sorted_verts = sort_verts(face.verts)
-                face_key = tuple(get_co_key(v.co) for v in sorted_verts)
-                obj_records.append((
-                    frozenset(v.index for v in face.verts),
-                    face_key,
-                    get_co_key(face.normal),
-                ))
+        mesh = obj.data
+        n_verts = len(mesh.vertices)
+        n_faces = len(mesh.polygons)
+
+        # 乳首、乳根、胸部宽度等参数单侧即可取到
+        mask = _chest_candidate_mask(obj, vg_names)
+        if n_verts and n_faces and any(mask):
+            co = array.array('f', [0.0]) * (n_verts * 3)
+            mesh.vertices.foreach_get("co", co)
+
+            loop_verts = array.array('i', [0]) * len(mesh.loops)
+            mesh.loops.foreach_get("vertex_index", loop_verts)
+
+            starts = array.array('i', [0]) * n_faces
+            mesh.polygons.foreach_get("loop_start", starts)
+            totals = array.array('i', [0]) * n_faces
+            mesh.polygons.foreach_get("loop_total", totals)
+
+            normals = array.array('f', [0.0]) * (n_faces * 3)
+            mesh.polygons.foreach_get("normal", normals)
+
+            for f in range(n_faces):
+                start = starts[f]
+                end = start + totals[f]
+                # 只要有一个顶点不在候选集合里，该面就不可能命中
+                for k in range(start, end):
+                    if not mask[loop_verts[k]]:
+                        break
+                # 执行了 break：跳过 else。
+                # 循环正常结束，没有执行 break：执行 else。
+                # 循环一次都没有执行：也会执行 else。
+                else:
+                    face_verts = [loop_verts[k] for k in range(start, end)]
+                    face_verts.sort(key=lambda i: (co[i * 3 + 2], co[i * 3], co[i * 3 + 1]))
+                    face_key = tuple(
+                        get_co_key((co[i * 3], co[i * 3 + 1], co[i * 3 + 2])) for i in face_verts
+                    )
+                    normal_key = get_co_key((normals[f * 3], normals[f * 3 + 1], normals[f * 3 + 2]))
+                    obj_records.append((frozenset(face_verts), face_key, normal_key))
+
         records[obj] = obj_records
     return records
 
