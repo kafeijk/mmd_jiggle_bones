@@ -2201,7 +2201,6 @@ def collect_face_records(obj_vgs_map):
     return records
 
 
-@timeit
 def has_overlapping_faces_with_opposite_normals(obj_verts_map, face_cache=None):
     """检查网格物体是否存在重合且法向相反的面
 
