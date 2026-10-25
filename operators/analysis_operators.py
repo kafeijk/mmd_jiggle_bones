@@ -1350,6 +1350,8 @@ class AnalysisOperator(bpy.types.Operator):
             process_source_objs(self.data)
             self.initialized = True
             self.face_cache = collect_face_records(self.data["copied_obj_vgs_map"])
+            # 各档阈值共用同一张网格：顶点权重总和不随阈值变化，只扫描一次
+            self.weight_cache = {}
             # 每次执行后，隐藏临时集合并恢复对象状态防止页面变化
             tmp_col = get_collection(TMP_ANALYSIS_COLLECTION_NAME)
             context.scene.collection.children.unlink(tmp_col)
@@ -1378,7 +1380,7 @@ class AnalysisOperator(bpy.types.Operator):
                 if self.analysis_index < len(self.thresholds):
                     threshold = self.thresholds[self.analysis_index]
                     result = do_analysis(copied_obj_vgs_map, threshold, self.analysis_index, analysis_type,
-                                         face_cache=self.face_cache)
+                                         face_cache=self.face_cache, weight_cache=self.weight_cache)
                     self.results.append(result)
                     self.analysis_index += 1
                     self.update_progress(props)
@@ -1388,7 +1390,7 @@ class AnalysisOperator(bpy.types.Operator):
                 if self.analysis_index < len(self.thresholds):
                     threshold = self.thresholds[self.analysis_index]
                     result = do_analysis(copied_obj_vgs_map, threshold, self.analysis_index, analysis_type,
-                                         face_cache=self.face_cache)
+                                         face_cache=self.face_cache, weight_cache=self.weight_cache)
                     self.results.append(result)
                     self.analysis_index += 1
                     self.update_progress(props)
@@ -1753,9 +1755,12 @@ def preprocess(active_object, source_objs):
     select_and_activate(active_object)
 
 
-def get_verts_influenced_by_bones(obj, bone_names, threshold, right=True):
+def get_verts_influenced_by_bones(obj, bone_names, threshold, right=True, weight_cache=None):
     """
     获取受指定骨骼影响且总权重大于 threshold 的顶点
+
+    weight_cache：同一次分析内多档阈值共用同一张网格，各顶点的权重总和不随阈值
+    变化，传入字典可只扫描一遍顶点（键：对象指针 + 骨骼名 + 左右侧）。
     """
     vgs = obj.vertex_groups
 
@@ -1766,8 +1771,16 @@ def get_verts_influenced_by_bones(obj, bone_names, threshold, right=True):
         if vg is not None:
             target_groups.add(vg.index)
 
-    verts = []
-    count = 0
+    key = None
+    if weight_cache is not None:
+        key = (obj.as_pointer(), tuple(bone_names), right)
+        cached = weight_cache.get(key)
+        if cached is not None:
+            refs, totals, max_weight = cached
+            return [v for v, w in zip(refs, totals) if w > threshold], max_weight
+
+    refs = []
+    totals = []
     max_weight = 0.0
     for v in obj.data.vertices:
         # 仅根据 bone_names 判断左右侧可能存在误差（如权重绑定错误：少女前线2的克莱妲），因此需通过顶点实际位置进行二次校验。
@@ -1777,7 +1790,6 @@ def get_verts_influenced_by_bones(obj, bone_names, threshold, right=True):
         total_weight = 0.0
 
         for g in v.groups:
-            count += 1
             # 用顶点组索引set比对，避免使用 obj.vertex_groups[g.group].name，太耗时了
             if g.group in target_groups:
                 total_weight += g.weight
@@ -1785,9 +1797,13 @@ def get_verts_influenced_by_bones(obj, bone_names, threshold, right=True):
         if total_weight > max_weight:
             max_weight = total_weight
 
-        if total_weight > threshold:
-            verts.append(v)
-    return verts, max_weight
+        refs.append(v)
+        totals.append(total_weight)
+
+    if key is not None:
+        weight_cache[key] = (refs, totals, max_weight)
+
+    return [v for v, w in zip(refs, totals) if w > threshold], max_weight
 
 
 def delete_unwanted_vertices(obj, keep_vertex_indices):
@@ -2216,13 +2232,14 @@ def has_overlapping_faces_with_opposite_normals(obj_verts_map, face_cache=None):
     return False
 
 
-def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None):
+def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None, weight_cache=None):
     """分析胸部尺寸"""
     # 网格对象 -> 胸部范围（高于权重阈值的顶点）
     obj_verts_map = {}
     max_weight = 0.0
     for source_obj, vg_names in obj_vgs_map.items():
-        source_vertices, part_weight = get_verts_influenced_by_bones(source_obj, vg_names, threshold)
+        source_vertices, part_weight = get_verts_influenced_by_bones(source_obj, vg_names, threshold,
+                                                                    weight_cache=weight_cache)
         if not source_vertices:
             continue
         obj_verts_map[source_obj] = source_vertices
@@ -2447,10 +2464,12 @@ def batch_do_analysis(obj_vgs_map, analysis_type):
 
     # 面数据只收集一次，各档阈值复用，避免每档都做 bmesh 转换与坐标键计算
     face_cache = collect_face_records(obj_vgs_map)
+    weight_cache = {}
 
     results = []
     for index, threshold in enumerate(thresholds):
-        result = do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=face_cache)
+        result = do_analysis(obj_vgs_map, threshold, index, analysis_type,
+                             face_cache=face_cache, weight_cache=weight_cache)
         if result.tmp_obj:
             result.tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_{result.cup if result.cup else 'None'}"
         results.append(result)
