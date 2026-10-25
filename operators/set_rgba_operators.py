@@ -177,7 +177,7 @@ class SetRgbaOperator(bpy.types.Operator):
             return {'RUNNING_MODAL'}
 
         # 进度条所在面板首次展开需要重新布局：先跳过两帧并主动重绘，避免界面来不及画
-        if self.flush_count < 5:
+        if self.flush_count < 20:
             self.flush_count += 1
             tag_redraw(context)
             return {'RUNNING_MODAL'}
