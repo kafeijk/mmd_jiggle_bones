@@ -2775,113 +2775,114 @@ def fix_all_concave_verts(bm, chain, dominant, cache):
     return True, values_to_remove
 
 
-def segments_intersect(a1, a2, b1, b2, eps=1e-6):
+def _segments_cross_xy(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2, eps=1e-6):
     """
     判断两条线段在 2D 平面（XY 平面）上是否真正相交。
 
     "真正相交"的定义：
       - 两段在各自内部（不含端点）有且仅有一个交点
-      - 共享端点（a1==b1 等情况）不算相交，直接返回 False
-      - 平行或共线也不算相交，返回 False
+      - 共享端点不算相交
+      - 平行或共线也不算相交
 
     参数：
-      a1, a2 : 线段 A 的两个端点（BMesh 顶点，用 .co.x / .co.y 取坐标）
-      b1, b2 : 线段 B 的两个端点
-      eps    : 浮点容差，用于判断平行以及交点是否在线段内部
+      a1=(ax1, ay1), a2=(ax2, ay2) : 线段 A 的两个端点
+      b1=(bx1, by1), b2=(bx2, by2) : 线段 B 的两个端点
+      eps                          : 浮点容差，用于判断平行以及交点是否在线段内部
 
     返回：
       True  —— 两段在内部相交（链出现自交）
       False —— 不相交、平行、或仅共享端点
+
+    说明：共享端点的排除由调用方按对象 id 完成（见 find_first_self_intersection），
+    本函数只接收坐标，避免在内层循环里反复访问 BMesh 的 .co 属性。
+
+    -------------------------------------------------------
+    第一步：把线段写成参数方程
+    -------------------------------------------------------
+    两段的参数方程（t、u 在 [0,1] 内时点在线段上）：
+      P(t) = a1 + t·(a2 - a1)
+      Q(u) = b1 + u·(b2 - b1)
+
+    t、u 就是"沿各自线段的归一化位置"：0 在起点，1 在终点，>1 在延长线上。
+
+    -------------------------------------------------------
+    第二步：相交 ⇔ 存在 t、u 使 P(t) = Q(u)
+    -------------------------------------------------------
+    令 P(t) = Q(u)：
+      a1 + t·(a2-a1) = b1 + u·(b2-b1)
+      t·(a2-a1) - u·(b2-b1) = b1 - a1
+
+    代入缩写：
+      (ax,ay) = a2-a1   （线段 A 的方向向量）
+      (bx,by) = b2-b1   （线段 B 的方向向量）
+      (cx,cy) = b1-a1   （从 a1 指向 b1 的偏移向量）
+      t·(a2-a1) - u·(b2-b1) = b1-a1  →  t·(ax,ay) - u·(bx,by) = (cx,cy)
+
+    拆成 x、y 分量，得方程组：
+      t·ax - u·bx = cx  ...(1)
+      t·ay - u·by = cy  ...(2)
+
+    -------------------------------------------------------
+    第三步：计算行列式（叉积的 Z 分量）
+    -------------------------------------------------------
+      denom = ax*by - ay*bx
+            = 向量 A × 向量 B 的 Z 分量
+
+    几何意义：
+      denom == 0  →  两段平行（或共线），无唯一交点
+      denom != 0  →  两条无限直线有唯一交点，再判断是否落在两段内部
+
+    -------------------------------------------------------
+    第四步：用参数方程求交点参数 t 和 u
+    -------------------------------------------------------
+    【消去 t，求 u】(1)×ay - (2)×ax：
+      t·ax·ay - u·bx·ay = cx·ay
+      t·ax·ay - u·by·ax = cy·ax
+      ─────────────────────────── 相减，t 项消掉
+      u·(ax·by - ay·bx) = cx·ay - cy·ax
+      u = (cx·ay - cy·ax) / denom
+
+    【消去 u，求 t】(1)×by - (2)×bx：
+      t·ax·by - u·bx·by = cx·by
+      t·ay·bx - u·by·bx = cy·bx
+      ─────────────────────────── 相减，u 项消掉
+      t·(ax·by - ay·bx) = cx·by - cy·bx
+      t = (cx·by - cy·bx) / denom
+
+    其中 denom = ax·by - ay·bx（两方向向量的 2D 叉积）。
+
+    t、u 的含义：
+      t∈(0,1) 且 u∈(0,1) → 交点严格在两段内部（真正相交）
+      t 或 u 超出 (0,1)   → 直线相交，但交点在线段延长线上
+      denom = 0           → 两段平行，无唯一交点
+
+    -------------------------------------------------------
+    第五步：判断交点是否严格落在两段内部
+    -------------------------------------------------------
+    t ∈ (0, 1)：交点在 A 的内部（不含端点 a1, a2）
+    u ∈ (0, 1)：交点在 B 的内部（不含端点 b1, b2）
+
+    用 eps 留出浮点容差，避免极近端点被误判为内部相交。
+    两个条件同时满足，才说明两段真正在内部交叉。
     """
+    ax = ax2 - ax1
+    ay = ay2 - ay1
+    bx = bx2 - bx1
+    by = by2 - by1
 
-    # -------------------------------------------------------
-    # 第一步：排除共享端点的情况
-    #
-    # 链中相邻线段天然共享一个端点（如 chain[i]-chain[i+1] 与 chain[i+1]-chain[i+2] 共享 chain[i+1]），这不是自交。
-    # -------------------------------------------------------
-    if a1 is b1 or a1 is b2 or a2 is b1 or a2 is b2:
-        return False
-
-    # -------------------------------------------------------
-    # 第二步：计算两段的方向向量
-    #
-    # 线段 A：从 a1 指向 a2，方向向量 (ax, ay)
-    # 线段 B：从 b1 指向 b2，方向向量 (bx, by)
-    # -------------------------------------------------------
-    ax, ay = a2.co.x - a1.co.x, a2.co.y - a1.co.y
-    bx, by = b2.co.x - b1.co.x, b2.co.y - b1.co.y
-
-    # -------------------------------------------------------
-    # 第三步：计算行列式（叉积的 Z 分量）
-    #
-    # denom = ax*by - ay*bx
-    #       = 向量 A × 向量 B 的 Z 分量
-    #
-    # 几何意义：
-    #   denom == 0  →  两段平行（或共线），无唯一交点
-    #   denom != 0  →  两条无限直线有唯一交点，再判断是否落在两段内部
-    # -------------------------------------------------------
     denom = ax * by - ay * bx
     if abs(denom) < eps:
         return False  # 平行或共线，视为不相交
 
-    # -------------------------------------------------------
-    # 第四步：用参数方程求交点参数 t 和 u
-    #
-    # 两段的参数方程（t、u 在 [0,1] 内时点在线段上）：
-    #   P(t) = a1 + t·(a2 - a1)
-    #   Q(u) = b1 + u·(b2 - b1)
-    #
-    # 交点 = 同一个点同时落在两段上，令 P(t) = Q(u)：
-    #   a1 + t·(a2-a1) = b1 + u·(b2-b1)
-    #   t·(a2-a1) - u·(b2-b1) = b1 - a1
-    #
-    # 代入缩写：
-    #   (ax,ay) = a2-a1   （线段 A 的方向向量）
-    #   (bx,by) = b2-b1   （线段 B 的方向向量）
-    #   (cx,cy) = b1-a1   （从 a1 指向 b1 的偏移向量）
-    #   t·(a2-a1) - u·(b2-b1) = b1-a1  →  t·(ax,ay) - u·(bx,by) = (cx,cy)
-    #
-    # 拆成 x、y 分量，得方程组：
-    #   t·ax - u·bx = cx  ...(1)
-    #   t·ay - u·by = cy  ...(2)
-    #
-    # 【消去 t，求 u】(1)×ay - (2)×ax：
-    #   t·ax·ay - u·bx·ay = cx·ay
-    #   t·ax·ay - u·by·ax = cy·ax
-    #   ─────────────────────────── 相减，t 项消掉
-    #   u·(ax·by - ay·bx) = cx·ay - cy·ax
-    #   u = (cx·ay - cy·ax) / denom
-    #
-    # 【消去 u，求 t】(1)×by - (2)×bx：
-    #   t·ax·by - u·bx·by = cx·by
-    #   t·ay·bx - u·by·bx = cy·bx
-    #   ─────────────────────────── 相减，u 项消掉
-    #   t·(ax·by - ay·bx) = cx·by - cy·bx
-    #   t = (cx·by - cy·bx) / denom
-    #
-    # 其中 denom = ax·by - ay·bx（两方向向量的 2D 叉积）
-    #
-    # t、u 的含义：
-    #   t∈(0,1) 且 u∈(0,1) → 交点严格在两段内部（真正相交）
-    #   t 或 u 超出 (0,1)   → 直线相交，但交点在线段延长线上
-    #   denom = 0           → 两段平行，无唯一交点
-    # -------------------------------------------------------
-    cx, cy = b1.co.x - a1.co.x, b1.co.y - a1.co.y
+    cx = bx1 - ax1
+    cy = by1 - ay1
 
     t = (cx * by - cy * bx) / denom  # 交点在线段 A 上的位置比例
-    u = (cx * ay - cy * ax) / denom  # 交点在线段 B 上的位置比例
+    if not (eps < t < 1 - eps):
+        return False
 
-    # -------------------------------------------------------
-    # 第五步：判断交点是否严格落在两段内部
-    #
-    # t ∈ (0, 1)：交点在 A 的内部（不含端点 a1, a2）
-    # u ∈ (0, 1)：交点在 B 的内部（不含端点 b1, b2）
-    #
-    # 用 eps 留出浮点容差，避免极近端点被误判为内部相交。
-    # 两个条件同时满足，才说明两段真正在内部交叉。
-    # -------------------------------------------------------
-    return eps < t < 1 - eps and eps < u < 1 - eps
+    u = (cx * ay - cy * ax) / denom  # 交点在线段 B 上的位置比例
+    return eps < u < 1 - eps
 
 
 def find_first_self_intersection(chain, dirty_segs=None):
@@ -2901,17 +2902,48 @@ def find_first_self_intersection(chain, dirty_segs=None):
       None   —— 未找到自交
     """
     n = len(chain)
-    if dirty_segs is None:
-        candidates = range(n - 1)
-    else:
-        candidates = sorted(dirty_segs)
+    if n < 3:
+        return None
+    candidates = range(n - 1) if dirty_segs is None else sorted(dirty_segs)
+
+    # 一次性取出 XY 坐标与对象标识：内层循环只做浮点比较，不再反复访问 BMesh 属性
+    coords = [(v.co.x, v.co.y) for v in chain]
+    ids = [id(v) for v in chain]
+    eps = 1e-6
 
     for i in candidates:
         if i >= n - 1:
             continue
-        # j 从 i+2 开始，全链比较
+
+        ax1, ay1 = coords[i]
+        ax2, ay2 = coords[i + 1]
+        aid1 = ids[i]
+        aid2 = ids[i + 1]
+
+        # 线段 A 的 XY 包围盒，用于内层快速排除
+        aminx, amaxx = (ax1, ax2) if ax1 <= ax2 else (ax2, ax1)
+        aminy, amaxy = (ay1, ay2) if ay1 <= ay2 else (ay2, ay1)
+
+        # j 从 i+2 开始：相邻线段天然共享端点，不算自交
         for j in range(i + 2, n - 1):
-            if segments_intersect(chain[i], chain[i + 1], chain[j], chain[j + 1]):
+            bid1 = ids[j]
+            bid2 = ids[j + 1]
+            # 链中可能存在重复顶点，共享端点的情况仍需排除
+            if bid1 == aid1 or bid1 == aid2 or bid2 == aid1 or bid2 == aid2:
+                continue
+
+            bx1, by1 = coords[j]
+            bx2, by2 = coords[j + 1]
+
+            # 包围盒不相交（留 eps 容差）则两段必不相交
+            bminx, bmaxx = (bx1, bx2) if bx1 <= bx2 else (bx2, bx1)
+            if bmaxx < aminx - eps or bminx > amaxx + eps:
+                continue
+            bminy, bmaxy = (by1, by2) if by1 <= by2 else (by2, by1)
+            if bmaxy < aminy - eps or bminy > amaxy + eps:
+                continue
+
+            if _segments_cross_xy(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2, eps):
                 return i, j
     return None
 
