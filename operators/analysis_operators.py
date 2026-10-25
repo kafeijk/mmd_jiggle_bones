@@ -1576,8 +1576,13 @@ def remove_tmp_obj(results, remove_tmp, analysis_type, copied_source_objs):
                 bpy.data.objects.remove(tmp_obj_for_base_body, do_unlink=True)
         for name in (TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME):
             collection = bpy.data.collections.get(name)
-            if collection is not None:
-                bpy.data.collections.remove(collection)
+            if collection is None:
+                continue
+            # 素体分析中途失败的临时副本没有记录到 result 中，
+            # 只移除集合会把它变成未链接对象残留在 bpy.data.objects，因此按集合成员删除
+            for obj in list(collection.objects):
+                bpy.data.objects.remove(obj, do_unlink=True)
+            bpy.data.collections.remove(collection)
     else:
         if analysis_type != "DEFAULT":
             for r in results:
