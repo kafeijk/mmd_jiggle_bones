@@ -463,6 +463,7 @@ class SetRgbaOperator(bpy.types.Operator):
 
 def analyze_breast(root, extra_bones):
     """分析胸部尺码；无论成功还是失败，都清理分析用的临时集合"""
+    data = None
     try:
         deselect_all_objects()
         select_and_activate(root)
@@ -489,6 +490,13 @@ def analyze_breast(root, extra_bones):
         analysis_result, _, _ = filter_results(results)
         return None, analysis_result
     finally:
+        # process_source_objs 合并后会把副本从临时集合中移出，
+        # 集合清理遍历不到它，这里按引用显式删除，避免残留对象及其网格/材质
+        for obj in (data or {}).get("copied_source_objs", []):
+            try:
+                bpy.data.objects.remove(obj, do_unlink=True)
+            except (ReferenceError, RuntimeError):
+                pass
         clean_temp_data([TMP_ANALYSIS_COLLECTION_NAME])
 
 
