@@ -36,7 +36,8 @@ class AnalysisStatus(Enum):
     胸部结构异常：模型本身存在问题。
     """
     OK = (0, "")
-    NO_BREAST_VERTS = (1, "无法获取有效胸部网格范围！请检查顶点组中是否存在顶点。")
+    NO_BREAST_VERTS = (1, "源模型中胸部顶点权重均为0，无法获取有效胸部网格范围。\n"
+                          "如果胸部本身可以活动，请使用骨骼扩展功能补充对应骨骼后重试。")
     NO_ISLANDS = (2, "未找到胸部网格松散块！")
     NO_BOUNDARY = (3, "未找到胸部网格松散块的边界顶点！")
     NO_BREAST_VERTS_AFTER_DELETE_INVALID = (4, "胸部网格结构复杂！移除无效顶点后，无剩余胸部网格。")
@@ -1112,8 +1113,11 @@ def process_source_objs(data):
         max_z, min_z = get_max_min_z(copied_source_objs, vg_names)
 
     # 切割 copied_source_objs，保留 0.01m 的冗余范围
-    for obj in copied_source_objs:
-        crop_mesh_by_z(obj, min_z - 0.01, max_z + 0.01)
+    # 所有胸部顶点组的权重均为 0 时区间是空集（inf/-inf），拿它切割会把副本整份删光，
+    # 后续连顶点组名称都拿不到，因此这种情况跳过切割，交给 do_analysis 报 NO_BREAST_VERTS
+    if max_z != float("-inf") and min_z != float("inf"):
+        for obj in copied_source_objs:
+            crop_mesh_by_z(obj, min_z - 0.01, max_z + 0.01)
 
     # 移除顶点数为0的对象
     for obj in copied_source_objs[:]:
@@ -1349,6 +1353,8 @@ class AnalysisOperator(bpy.types.Operator):
         if not self.initialized:
             # 预处理
             preprocess(self.active_object, self.data["source_objs"])
+            # 原胸部顶点组名称，用于报错提示
+            self.vg_names_src = list(dict.fromkeys(self.data["b_names_l"] + self.data["b_names_r"]))
             process_source_objs(self.data)
             self.initialized = True
             self.face_cache = collect_face_records(self.data["copied_obj_vgs_map"])
@@ -1382,7 +1388,8 @@ class AnalysisOperator(bpy.types.Operator):
                 if self.analysis_index < len(self.thresholds):
                     threshold = self.thresholds[self.analysis_index]
                     result = do_analysis(copied_obj_vgs_map, threshold, self.analysis_index, analysis_type,
-                                         face_cache=self.face_cache, weight_cache=self.weight_cache)
+                                         face_cache=self.face_cache, weight_cache=self.weight_cache,
+                                         vg_names_src=self.vg_names_src)
                     self.results.append(result)
                     self.analysis_index += 1
                     self.update_progress(props)
@@ -1392,7 +1399,8 @@ class AnalysisOperator(bpy.types.Operator):
                 if self.analysis_index < len(self.thresholds):
                     threshold = self.thresholds[self.analysis_index]
                     result = do_analysis(copied_obj_vgs_map, threshold, self.analysis_index, analysis_type,
-                                         face_cache=self.face_cache, weight_cache=self.weight_cache)
+                                         face_cache=self.face_cache, weight_cache=self.weight_cache,
+                                         vg_names_src=self.vg_names_src)
                     self.results.append(result)
                     self.analysis_index += 1
                     self.update_progress(props)
@@ -2238,7 +2246,8 @@ def has_overlapping_faces_with_opposite_normals(obj_verts_map, face_cache=None):
     return False
 
 
-def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None, weight_cache=None):
+def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None, weight_cache=None,
+                vg_names_src=None):
     """分析胸部尺寸"""
     # 网格对象 -> 胸部范围（高于权重阈值的顶点）
     obj_verts_map = {}
@@ -2252,11 +2261,14 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None, w
         if part_weight > max_weight:
             max_weight = part_weight
 
-    vg_names_l = sorted({vg for vgs in obj_vgs_map.values() for vg in vgs})
+    if vg_names_src:
+        vg_names_l = list(dict.fromkeys(vg_names_src))
+    else:
+        vg_names_l = sorted({vg for vgs in obj_vgs_map.values() for vg in vgs})
     if not obj_verts_map:
         return AnalysisResult(
             status=AnalysisStatus.NO_BREAST_VERTS,
-            msg=f"{AnalysisStatus.NO_BREAST_VERTS.msg}顶点组名称参考：{vg_names_l}",
+            msg=f"{AnalysisStatus.NO_BREAST_VERTS.msg}\n已识别骨骼名称参考：{vg_names_l}",
             threshold=threshold
         )
 
@@ -2465,7 +2477,7 @@ def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None, t
     return tmp_col, tmp_obj, temp_mesh
 
 
-def batch_do_analysis(obj_vgs_map, analysis_type):
+def batch_do_analysis(obj_vgs_map, analysis_type, vg_names_src=None):
     thresholds = ANALYSIS_THRESHOLDS
 
     # 面数据只收集一次，各档阈值复用，避免每档都做 bmesh 转换与坐标键计算
@@ -2475,7 +2487,8 @@ def batch_do_analysis(obj_vgs_map, analysis_type):
     results = []
     for index, threshold in enumerate(thresholds):
         result = do_analysis(obj_vgs_map, threshold, index, analysis_type,
-                             face_cache=face_cache, weight_cache=weight_cache)
+                             face_cache=face_cache, weight_cache=weight_cache,
+                             vg_names_src=vg_names_src)
         if result.tmp_obj:
             result.tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_{result.cup if result.cup else 'None'}"
         results.append(result)

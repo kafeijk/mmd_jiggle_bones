@@ -335,7 +335,7 @@ class SetRgbaOperator(bpy.types.Operator):
         # 从源模型胸部顶点中筛选权重大于WEIGHT_THRESHOLD的顶点，作为胸部网格范围，用于定位伪胸部骨骼的坐标
         primary, marginal = get_vertices_influenced_by_bones(obj, [b.name for b in breast_bones])
         if not primary and not marginal:
-            return name, "ERROR", f"源模型中胸部顶点权重均为0，无法获取有效胸部网格范围"
+            return name, "ERROR", f"{AnalysisStatus.NO_BREAST_VERTS.msg}\n已识别骨骼名称参考：{breast_names}"
         influenced_verts = primary if primary else marginal
 
         # “首”骨骼及其父级用于确定胸部绑定的身体骨骼
@@ -476,13 +476,15 @@ def analyze_breast(root, extra_bones):
         # 预处理
         source_objs = data["source_objs"]
         preprocess(root, source_objs)
+        # 原胸部顶点组名称，用于报错提示
+        vg_names_src = list(dict.fromkeys(data["b_names_l"] + data["b_names_r"]))
 
         # 复制对象并进行切割，减少后续处理耗时
         # 重映射胸部权重，提高胸部边缘区域权重，从而提升尺码选择时的准确率
         process_source_objs(data)
         copied_obj_vgs_map = data["copied_obj_vgs_map"]
 
-        results = batch_do_analysis(copied_obj_vgs_map, "DEFAULT")
+        results = batch_do_analysis(copied_obj_vgs_map, "DEFAULT", vg_names_src=vg_names_src)
         if all(r.status != AnalysisStatus.OK for r in results):
             msg = build_all_failed_msg(results)
             return msg, None
