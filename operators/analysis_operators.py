@@ -18,13 +18,13 @@ from ..constants import (
     BASEBODY_TMP_OBJ_NAME, BREAST_BL_NAME_L, BREAST_BL_NAME_R, CUP_LIST,
     DEFAULT_TMP_OBJ_NAME, LINKED_FACES_THRESHOLD, MAX_RING_COUNT,
     MAX_SEARCH_COUNT, STANDARD_CUP_LIST, TASK_ANALYSIS, TIMER_INTERVAL,
-    TMP_ANALYSIS_COLLECTION_NAME, TMP_COLLECTION_NAME,
+    TMP_ANALYSIS_COLLECTION_NAME, TMP_COLLECTION_NAME, TMP_OBJ_PROP,
 )
 from ..utils import (
     adjust_ang_limits, bmesh_from_mesh, clean_temp_data, copy_obj,
     deselect_all_objects, find_ancestor, find_objs, format_cm,
     get_breast_bones_map, get_collection, get_standard_cup_index,
-    is_visible_in_viewport, purge_new_orphan_data, remap_breast_weights,
+    is_temp_obj, is_visible_in_viewport, purge_new_orphan_data, remap_breast_weights,
     restore_selection, select_and_activate, set_batch_progress,
     snapshot_data_blocks, tag_redraw, trans_vg, timeit,
 )
@@ -1600,23 +1600,14 @@ def remove_tmp_obj(results, remove_tmp, analysis_type, copied_source_objs):
                 bpy.data.objects.remove(tmp_obj, do_unlink=True)
             if analysis_type != "DEFAULT" and tmp_obj_for_base_body:
                 bpy.data.objects.remove(tmp_obj_for_base_body, do_unlink=True)
-        for name in (TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME):
-            collection = bpy.data.collections.get(name)
-            if collection is None:
-                continue
-            # 素体分析中途失败的临时副本没有记录到 result 中，
-            # 只移除集合会把它变成未链接对象残留在 bpy.data.objects，因此按集合成员删除
-            for obj in list(collection.objects):
-                bpy.data.objects.remove(obj, do_unlink=True)
-            bpy.data.collections.remove(collection)
+        # 素体分析中途失败的临时对象没有记录到 result 中，按标记清理集合内剩余临时对象
+        clean_temp_data([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
     else:
         if analysis_type != "DEFAULT":
             for r in results:
                 if r.tmp_obj:
                     bpy.data.objects.remove(r.tmp_obj, do_unlink=True)
-            collection = bpy.data.collections.get(TMP_COLLECTION_NAME)
-            if collection is not None:
-                bpy.data.collections.remove(collection)
+            clean_temp_data([TMP_COLLECTION_NAME])
 
         # 恢复临时集合显示
         # 集合为空说明本次没有任何可查看的临时对象
@@ -1709,6 +1700,10 @@ def validate_analysis_param(active_object, extra_bones):
     """参数校验"""
     if active_object is None:
         return "请选择模型！", None
+
+    # 临时对象没有父级，继续向下校验只会得到“未找到骨架”，这里直接给出明确提示
+    if is_temp_obj(active_object):
+        return "当前活动对象为分析过程产生的临时对象，请选择源模型后重试。", None
 
     # 根节点
     # 获取根对象下所有的骨架和网格。扩大适用范围，不局限于MMD模型及其结构
@@ -2487,6 +2482,8 @@ def create_tmp_obj(obj_verts_map, delete_unwanted_flag=True, source_objs=None, t
 
     # 父级取消关联
     tmp_obj.parent = None
+    # 标记为分析临时对象，供清理与校验识别
+    tmp_obj[TMP_OBJ_PROP] = True
 
     # 排除形态键干扰
     if tmp_obj.data.shape_keys:

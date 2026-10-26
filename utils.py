@@ -11,7 +11,7 @@ import bpy
 from .constants import (
     BREAST_BL_NAME_L, BREAST_BL_NAME_R, BREAST_BONE_PATTERN, CUP_INDEX_MAP,
     MAX_RETRIES, MODEL_SCALE, RETRY_DELAY, STANDARD_CUP_INDEX_MAP, TASK_ANALYSIS,
-    TASK_SET_RGBA, TRACKED_DATA_BLOCK_TYPES, WEIGHT_THRESHOLD,
+    TASK_SET_RGBA, TMP_OBJ_PROP, TRACKED_DATA_BLOCK_TYPES, WEIGHT_THRESHOLD,
 )
 
 # 批处理进度：存放在模块级变量中，而不是 Scene 属性里，
@@ -437,7 +437,12 @@ def timeit(func):
     return wrapper
 
 
-def clean_temp_data(collections, snapshot=None):
+def is_temp_obj(obj):
+    """是否为尺码分析保留的临时对象"""
+    return obj is not None and TMP_OBJ_PROP in obj
+
+
+def clean_temp_data(collections, snapshot=None, only_marked=True):
     """
     清理指定集合及其对象，并可选清理本次新增的数据块与导入文本。
 
@@ -449,6 +454,8 @@ def clean_temp_data(collections, snapshot=None):
             - 集合列表(list/tuple)
         snapshot:
             操作前记录的数据块快照；提供时只清理本次新增的数据
+        only_marked:
+            默认只删除带临时标记的对象；False 时删除集合内全部对象（RGBA 流程使用）
     """
 
     # 转换为列表
@@ -465,14 +472,17 @@ def clean_temp_data(collections, snapshot=None):
         if collection is None:
             continue
 
-        # 遍历集合中的所有对象
+        # 只删除带临时标记的对象，集合中用户自己的对象保留
         for obj in list(collection.objects):
+            if only_marked and not is_temp_obj(obj):
+                continue
             # 从集合中移除对象
             collection.objects.unlink(obj)
             # 从场景中删除对象
             bpy.data.objects.remove(obj, do_unlink=True)
-        # 删除集合
-        bpy.data.collections.remove(collection)
+        # 集合空了才删除，仍有用户对象时保留集合
+        if not collection.objects:
+            bpy.data.collections.remove(collection)
 
     # 只清理本次新增的数据块，避免影响用户已有数据
     if snapshot is not None:

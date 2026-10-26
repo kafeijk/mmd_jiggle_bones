@@ -294,6 +294,7 @@ class SetRgbaOperator(bpy.types.Operator):
                 clean_temp_data(
                     TMP_COLLECTION_NAME,
                     snapshot=getattr(self, "data_snapshot", None),
+                    only_marked=False,
                 )
             except Exception:
                 traceback.print_exc()

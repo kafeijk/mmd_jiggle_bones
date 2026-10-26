@@ -14,6 +14,8 @@ RETRY_DELAY = 1
 TMP_COLLECTION_NAME = "胸部物理移植临时集合"
 # 分析临时集合名称
 TMP_ANALYSIS_COLLECTION_NAME = "尺码分析临时集合"
+# 临时对象标记属性（仅尺码分析临时集合中保留的临时对象会带此标记）
+TMP_OBJ_PROP = "mmd_jiggle_tmp_obj"
 BREAST_BL_NAME_L = "胸.L"
 BREAST_BL_NAME_R = "胸.R"
 BREAST_JP_NAME_L = "左胸"
