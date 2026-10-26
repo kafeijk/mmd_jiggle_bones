@@ -129,7 +129,7 @@ class SetRgbaOperator(bpy.types.Operator):
         self.processing_file = False  # 控制UI刷新与主流程交替执行
         # 记录批处理开始前的数据块，后续只清理本次新增的，避免误删用户数据
         self.data_snapshot = snapshot_data_blocks()
-        # 进度条所在面板首次展开需要重新布局，先跳过两帧并主动重绘（见 modal）
+        # 进度条所在面板首次展开需要重新布局，先跳过20次并主动重绘（见 modal）
         self.flush_count = 0
 
         # 初始化进度条，显示内容为第一个模型
@@ -176,7 +176,7 @@ class SetRgbaOperator(bpy.types.Operator):
         if event.type != 'TIMER':
             return {'RUNNING_MODAL'}
 
-        # 进度条所在面板首次展开需要重新布局：先跳过两帧并主动重绘，避免界面来不及画
+        # 进度条所在面板首次展开需要重新布局：先跳过20次并主动重绘，避免界面来不及画
         if self.flush_count < 20:
             self.flush_count += 1
             tag_redraw(context)
@@ -333,7 +333,7 @@ class SetRgbaOperator(bpy.types.Operator):
 
         # 筛选源模型胸部骨骼中的水平胸部骨骼，用于计算位置
         horizontal_bones = filter_horizontal_bones(armature, breast_bones)
-        # 从源模型胸部顶点中筛选权重大于WEIGHT_THRESHOLD的顶点，作为胸部网格范围，用于定位伪胸部骨骼的坐标
+        # 从源模型胸部顶点中优先筛选权重大于WEIGHT_THRESHOLD的顶点；没有时退回权重非零的顶点，作为胸部网格范围，用于定位伪胸部骨骼的坐标
         primary, marginal = get_vertices_influenced_by_bones(obj, [b.name for b in breast_bones])
         if not primary and not marginal:
             return name, "ERROR", f"{AnalysisStatus.NO_BREAST_VERTS.msg}\n已识别骨骼名称参考：{breast_names}"
@@ -493,7 +493,7 @@ def analyze_breast(root, extra_bones):
         return None, analysis_result
     finally:
         # process_source_objs 合并后会把副本从临时集合中移出，
-        # 集合清理遍历不到它，这里按引用显式删除，避免残留对象及其网格/材质
+        # 集合清理遍历不到它，这里按引用显式删除，避免残留对象及其网格数据
         for obj in (data or {}).get("copied_source_objs", []):
             try:
                 remove_obj(obj)
@@ -605,7 +605,7 @@ def configure_collision_mass_order(root, accessory_breast_rel_map, props):
     创建“双臂衝突刚体”，仅对“胸部刚体”碰撞，“胸部刚体”仅对“双臂衝突刚体”碰撞
     如果其它物理刚体的碰撞组与“胸部刚体”相同，且碰巧与“双臂衝突刚体”发生碰撞，也无所谓；如果其它物理刚体的碰撞组与“双臂衝突刚体”相同，且碰巧与“胸部刚体”发生碰撞，有影响概率较低
     创建“胸部衝突刚体”，仅对物理刚体碰撞，物理刚体是否对“胸部衝突刚体”碰撞，取决于原本设置，为了尽可能减少对碰撞组的占用，“胸部衝突刚体”的碰撞组与“胸部刚体”相同
-    胸部首个子骨对应的刚体如果为“物理+骨骼”类型，则改为追踪骨骼，且不与胸部碰撞，如乱破
+    胸部首个子骨对应的刚体如果为“追踪骨骼”类型，则改为“物理+骨骼”，且不与胸部碰撞，如乱破
     胸部子孙骨和胸部如果有碰撞且穿模，设置为非碰撞，如朱鸢
     """
     armature, objs, joint_parent, rb_parent = get_mmd_info(root)
@@ -675,14 +675,14 @@ def configure_collision_mass_order(root, accessory_breast_rel_map, props):
         # 创建胸部碰撞刚体
         breast_collision_rb_map = {}
         for rb in rigid_bodies:
-            # 仅追踪骨骼类型
+            # 仅保留物理/物理+骨骼类型
             if rb.mmd_rigid.type not in ('1', '2'):
                 continue
             # 避免重复创建
             name_j = rb.mmd_rigid.name_j
             if name_j in breast_collision_rb_map:
                 continue
-            # 仅创建两臂衝突刚体
+            # 仅创建胸部衝突刚体
             if name_j not in [BREAST_JP_NAME_L, BREAST_JP_NAME_R]:
                 continue
             crb = copy_rb(rb)

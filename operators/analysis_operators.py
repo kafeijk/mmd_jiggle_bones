@@ -444,7 +444,7 @@ def further_process_for_base_body(source_objs, b_names, result, index, clean_mes
     upper_ring = get_upper_ring(tmp_obj, nipple_z)
     under_ring = get_under_ring(tmp_obj, under_z, b_names)
 
-    # 删除 upper_ring_verts 与 under_ring_verts 之间的边
+    # 删除 upper_ring 与 under_ring 之间的边
     with bmesh_from_mesh(tmp_obj.data) as bm:
         bm.verts.ensure_lookup_table()
         edges_to_delete = []
@@ -464,7 +464,7 @@ def further_process_for_base_body(source_objs, b_names, result, index, clean_mes
         bm.to_mesh(tmp_obj.data)
         tmp_obj.data.update()
 
-    # 如果任一上下胸围顶点数小于2，则无法构成边，直接continue
+    # 如果任一上下胸围顶点数小于2，则无法构成边，直接返回失败状态
     if len(upper_ring) < 2:
         result.status = AnalysisStatus.NO_UPPER_BUST
         result.msg = AnalysisStatus.NO_UPPER_BUST.msg
@@ -513,7 +513,7 @@ def further_process_for_base_body(source_objs, b_names, result, index, clean_mes
                 cup = c
                 break
 
-    # 解除临时对象与源对象的关联
+    # 按序号、阈值和罩杯重命名临时对象，便于在临时集合中识别
     tmp_obj.name = f"{index}_{BASEBODY_TMP_OBJ_NAME}_{result.threshold}_{cup if cup else 'None'}"
 
     # 保存结果
@@ -585,7 +585,7 @@ def get_rings_at_z(obj, z_target, max_ring_count=MAX_RING_COUNT):
         return []
 
     # 建立无向图
-    # vertex -> 相邻 vertex
+    # 顶点索引 -> 相邻顶点索引
     adjacency = defaultdict(set)
     for edge in mesh.edges:
         v0, v1 = edge.vertices
@@ -1273,7 +1273,7 @@ class AnalysisOperator(bpy.types.Operator):
         self.further_index = 0
         self.results = []
         self.all_done = False
-        # 进度条所在面板首次展开需要重新布局，先跳过两帧并主动重绘（见 modal）
+        # 进度条所在面板首次展开需要重新布局，先跳过20次并主动重绘（见 modal）
         self.flush_count = 0
         # 进度更新后是否还要多留一轮 TIMER，让界面把它画出来
         self.hold_progress = False
@@ -1333,7 +1333,7 @@ class AnalysisOperator(bpy.types.Operator):
         if event.type != 'TIMER':
             return {'RUNNING_MODAL'}
 
-        # 进度条所在面板首次展开需要重新布局：先跳过两帧并主动重绘，避免界面来不及画
+        # 进度条所在面板首次展开需要重新布局：先跳过20次并主动重绘，避免界面来不及画
         if self.flush_count < 20:
             self.flush_count += 1
             tag_redraw(context)
@@ -2105,7 +2105,7 @@ def get_breast_nipple(bm, temp_obj, breast_verts, under_vert, other_island_verts
 def get_breast_cleavage(max_x, breast_verts, other_island_verts):
     """
     获取胸部内侧参考顶点
-    获取x在0~abs(max_x)/4范围内的的顶点列表并按照x大小排序
+    获取x在0~abs(max_x)/10范围内的的顶点列表并按照x大小排序
     默认取最左侧顶点作为内侧顶点，这种情况下x的增长对应胸型凸起，适用于素体等着衣较少的情况的乳沟的选取。
     如果穿了服装，则取从左到右时的局部峰值的最大值作为内侧顶点
     """

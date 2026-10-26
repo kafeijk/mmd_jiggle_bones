@@ -56,7 +56,7 @@ BREAST_BONE_PATTERN = re.compile(
 )
 
 BREAST_RB_PATTERN = re.compile(
-    r'^([_左右胸]*)'  # 开头必须是“胸”
+    r'^([_左右胸]*)'  # 开头可为下划线、左、右、胸
     r'([_上下前後先間親亲変形回転支え基W筋]*)'
     r'([0-9０-９])?'  # 可选的单独数字（半角或全角）
     r'([錘先D])?'
@@ -76,7 +76,7 @@ DEFAULT_TMP_OBJ_NAME = "DEFAULT_TMP"
 BASEBODY_TMP_OBJ_NAME = "BASEBODY_TMP"
 
 # 胸部尺码判定列表
-# 每次递增2。
+# 从 B 起每次递增2，AA、A 为特殊的起始档。
 # 如果每次递增设置为2.5，整体罩杯会变小，由于乳首与乳根所对应的胸廓差、背部曲线差其实也很大，所以让每次递增数变小一些，使罩杯的变化更明显一些。
 CUP_LIST = [
     (1.6, "AA"),

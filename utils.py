@@ -107,7 +107,7 @@ def deselect_all_objects():
 
 
 def show_object(obj):
-    """显示物体。在视图取消禁用选择，在视图中取消隐藏，在视图中取消禁用，在渲染中取消禁用"""
+    """显示物体：取消禁用选择、取消视图隐藏、取消视图禁用、取消渲染禁用"""
     set_visibility(obj, (False, False, False, False))
 
 
@@ -571,7 +571,7 @@ def trans_vg(obj, source_vg_name, target_vg_name, factor=1.0, remove_source=True
 
 
 def remap_breast_weights(obj):
-    """当胸部权重最大值不足1时，重映射胸部权重 如果顶点同时受到BREAST_BL_NAME_L和BREAST_BL_NAME_R影响，那么处理顺序对该点来说无太大影响，此处不是重点"""
+    """当胸部权重最大值不足1时，重映射胸部权重。左右胸在同一顶点上的处理见 do_remap_breast_weights"""
     # 获取胸部顶点
     primary, marginal = get_vertices_influenced_by_bones(obj, [BREAST_BL_NAME_L, BREAST_BL_NAME_R])
     breast_v = primary + marginal
