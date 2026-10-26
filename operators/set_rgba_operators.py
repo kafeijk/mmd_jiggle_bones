@@ -105,6 +105,7 @@ class SetRgbaOperator(bpy.types.Operator):
         "RGBA式胸部物理移植\n"
         "生成的模型无法在Blender、MMM、NexGiMa中直接进行烘焙\n"
         "如需烘焙，请使用MMD桥生成带物理的VMD文件，或采用ABC流程\n"
+        "同一模型在不同参数下多次执行时，骨架数据相同，烘焙数据可复用\n"
         "批量操作不可撤销，请确认后再执行")
     bl_options = {'REGISTER'}
 
