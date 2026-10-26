@@ -2322,7 +2322,7 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None, w
         if not positive_x:
             tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
             return AnalysisResult(status=AnalysisStatus.NO_BREAST_WIDTH,
-                                  msg=AnalysisStatus.NO_BREAST_WIDTH.get_msg(rgba),
+                                  msg=AnalysisStatus.NO_BREAST_WIDTH.msg,
                                   threshold=threshold, tmp_obj=tmp_obj)
         max_x = max(positive_x)
 
@@ -2331,7 +2331,7 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None, w
         if lower is None:
             tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
             return AnalysisResult(status=AnalysisStatus.NO_BREAST_LOWER,
-                                  msg=AnalysisStatus.NO_BREAST_LOWER.get_msg(rgba),
+                                  msg=AnalysisStatus.NO_BREAST_LOWER.msg,
                                   threshold=threshold, tmp_obj=tmp_obj)
         lower_co = lower.co
 
@@ -2355,7 +2355,7 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None, w
     if cup == CUP_LIST[-1][1]:
         tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
         return AnalysisResult(status=AnalysisStatus.BUST_DIFF_TOO_LARGE,
-                              msg=AnalysisStatus.BUST_DIFF_TOO_LARGE.get_msg(rgba),
+                              msg=AnalysisStatus.BUST_DIFF_TOO_LARGE.msg,
                               threshold=threshold, tmp_obj=tmp_obj)
 
     cup_inner = None
