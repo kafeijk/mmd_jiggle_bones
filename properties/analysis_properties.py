@@ -25,7 +25,10 @@ class AnalysisProperty(bpy.types.PropertyGroup):
 
     remove_tmp: bpy.props.BoolProperty(
         name="删除临时对象",
-        description="删除临时对象",
+        description=(
+            "分析结束后删除本次生成的临时对象\n"
+            "取消勾选时临时对象会保留，便于检查参考点、胸围环等内容"
+        ),
         default=True
     )
 
