@@ -442,6 +442,20 @@ def is_temp_obj(obj):
     return obj is not None and TMP_OBJ_PROP in obj
 
 
+def remove_obj(obj):
+    """
+    删除对象，并清理其无人使用的网格数据，避免留下孤儿网格
+
+    remove_tmp=False 时，临时对象会被保留。
+    再次执行时，虽然会删除临时对象，但孤儿 Mesh 数据仍会被计入快照，无法随之清理，因此该方法会同时删除临时对象及其关联的孤儿 Mesh 数据。
+    """
+    data = getattr(obj, "data", None)
+    bpy.data.objects.remove(obj, do_unlink=True)
+    # 临时对象的网格都是独立副本，对象删除后数据块无人使用即可一并删除
+    if isinstance(data, bpy.types.Mesh) and data.users == 0 and not data.use_fake_user:
+        bpy.data.meshes.remove(data)
+
+
 def clean_temp_data(collections, snapshot=None, only_marked=True):
     """
     清理指定集合及其对象，并可选清理本次新增的数据块与导入文本。
@@ -476,10 +490,8 @@ def clean_temp_data(collections, snapshot=None, only_marked=True):
         for obj in list(collection.objects):
             if only_marked and not is_temp_obj(obj):
                 continue
-            # 从集合中移除对象
-            collection.objects.unlink(obj)
-            # 从场景中删除对象
-            bpy.data.objects.remove(obj, do_unlink=True)
+            # 删除对象并清理其无人使用的网格数据
+            remove_obj(obj)
         # 集合空了才删除，仍有用户对象时保留集合
         if not collection.objects:
             bpy.data.collections.remove(collection)

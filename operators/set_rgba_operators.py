@@ -34,7 +34,7 @@ from ..utils import (
     find_pmx_armature, find_pmx_objects, find_rigid_body, find_rigid_body_parent,
     get_breast_bones_map, get_collection, get_vertices_influenced_by_bones,
     import_pmx, int2base, is_dummy_bone, is_mmd_tools_enabled,
-    remap_breast_weights, restore_selection, select_and_activate, set_batch_progress,
+    remap_breast_weights, remove_obj, restore_selection, select_and_activate, set_batch_progress,
     show_object, snapshot_data_blocks, tag_redraw, trans_vg,
 )
 
@@ -497,7 +497,7 @@ def analyze_breast(root, extra_bones):
         # 集合清理遍历不到它，这里按引用显式删除，避免残留对象及其网格/材质
         for obj in (data or {}).get("copied_source_objs", []):
             try:
-                bpy.data.objects.remove(obj, do_unlink=True)
+                remove_obj(obj)
             except (ReferenceError, RuntimeError):
                 pass
         clean_temp_data([TMP_ANALYSIS_COLLECTION_NAME])

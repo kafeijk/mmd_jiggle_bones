@@ -25,7 +25,7 @@ from ..utils import (
     deselect_all_objects, find_ancestor, find_objs, format_cm,
     get_breast_bones_map, get_collection, get_standard_cup_index,
     is_temp_obj, is_visible_in_viewport, purge_new_orphan_data, remap_breast_weights,
-    restore_selection, select_and_activate, set_batch_progress,
+    remove_obj, restore_selection, select_and_activate, set_batch_progress,
     snapshot_data_blocks, tag_redraw, trans_vg, timeit,
 )
 
@@ -1597,16 +1597,16 @@ def remove_tmp_obj(results, remove_tmp, analysis_type, copied_source_objs):
             tmp_obj = r.tmp_obj
             tmp_obj_for_base_body = r.tmp_obj_for_base_body
             if tmp_obj:
-                bpy.data.objects.remove(tmp_obj, do_unlink=True)
+                remove_obj(tmp_obj)
             if analysis_type != "DEFAULT" and tmp_obj_for_base_body:
-                bpy.data.objects.remove(tmp_obj_for_base_body, do_unlink=True)
+                remove_obj(tmp_obj_for_base_body)
         # 素体分析中途失败的临时对象没有记录到 result 中，按标记清理集合内剩余临时对象
         clean_temp_data([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
     else:
         if analysis_type != "DEFAULT":
             for r in results:
                 if r.tmp_obj:
-                    bpy.data.objects.remove(r.tmp_obj, do_unlink=True)
+                    remove_obj(r.tmp_obj)
             clean_temp_data([TMP_COLLECTION_NAME])
 
         # 恢复临时集合显示
@@ -1620,7 +1620,7 @@ def remove_tmp_obj(results, remove_tmp, analysis_type, copied_source_objs):
                 bpy.context.scene.collection.children.link(tmp_col)
 
     for obj in copied_source_objs:
-        bpy.data.objects.remove(obj, do_unlink=True)
+        remove_obj(obj)
 
 
 def fill_row(r):
