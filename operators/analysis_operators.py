@@ -2239,15 +2239,12 @@ def collect_face_records(obj_vgs_map):
     return records
 
 
-def has_overlapping_faces_with_opposite_normals(obj_verts_map, face_cache=None):
+def has_overlapping_faces_with_opposite_normals(obj_verts_map, face_cache):
     """检查网格物体是否存在重合且法向相反的面
 
-    face_cache 可由 collect_face_records 预先生成：多档阈值共用同一份面数据，
-    避免每档阈值都做一次 bmesh 转换和坐标键计算。
+    face_cache 由 collect_face_records(obj_vgs_map) 生成，必须由调用方传入：
+    多档阈值共用同一份面数据，避免每档阈值都做一次 bmesh 转换和坐标键计算。
     """
-    if face_cache is None:
-        face_cache = collect_face_records(obj_verts_map)
-
     source_faces = {}
 
     for obj, verts in obj_verts_map.items():
@@ -2300,8 +2297,10 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None, w
     # 如果直接放在通用阶段，会引入不必要的检测；如果直接放在素体阶段，则会降低整体检测通过率。
     # 因此，这里仅在通用阶段记录 tag，在素体阶段进行拦截。
     # 这样可以检测出胸部区域存在的反向面问题，至于胸侧和后背区域，由于出现此类问题的概率较低，暂不进行处理。
+    if face_cache is None:
+        face_cache = collect_face_records(obj_vgs_map)
     opposite_normals = False
-    if has_overlapping_faces_with_opposite_normals(obj_verts_map, face_cache=face_cache):
+    if has_overlapping_faces_with_opposite_normals(obj_verts_map, face_cache):
         opposite_normals = True
 
     # 创建临时胸部对象
