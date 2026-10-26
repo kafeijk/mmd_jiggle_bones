@@ -36,33 +36,51 @@ class AnalysisStatus(Enum):
     胸部结构异常：模型本身存在问题。
     """
     OK = (0, "")
-    NO_BREAST_VERTS = (1, "源模型中胸部顶点权重均为0，无法获取有效胸部网格范围。\n"
-                          "如果胸部本身可以活动，请使用骨骼扩展功能补充对应骨骼后重试。")
-    NO_ISLANDS = (2, "胸部网格结构复杂！未找到胸部网格松散块！请删除无关内容后重试。")
-    NO_BOUNDARY = (3, "未找到胸部网格松散块的边界顶点！")
-    NO_BREAST_VERTS_AFTER_DELETE_INVALID = (4, "胸部网格结构复杂！移除无效顶点后，无剩余胸部网格。")
+
+    # 通用部分提示，按使用场景分为胸部尺码分析与RGBA物理移植的提示。
+    NO_BREAST_VERTS = (1, "源模型中胸部顶点权重均为0，无法获取有效胸部网格范围。\n如果胸部本身可以活动，请使用骨骼扩展功能补充对应骨骼后重试。")
+    # 实测中暂未发现
+    NO_ISLANDS = (2,
+                  "胸部网格结构复杂！未找到胸部网格松散块！",
+                  "胸部网格结构复杂！未找到胸部网格松散块！请使用自定义（简化），手动测量参数后重试。")
+    # 实测中存在个别案例，如 崩坏3的格蕾修_繁星·绘世之卷_夏梦如绘、卡拉比丘的绯莎_假日懒洋洋
+    NO_BOUNDARY = (3,
+                   "胸部网格结构复杂！未找到胸部网格松散块的边界顶点！请隐藏或删除无关内容后重试。",
+                   "胸部网格结构复杂！未找到胸部网格松散块的边界顶点！请使用自定义（简化），手动测量参数后重试。")
+    # 实测中存在个别案例，如崩坏3的科拉莉_女武神·重机、鸣潮的娜波摩、卡拉比丘的绯莎_假日懒洋洋、少女前线2：追放的洛塔
+    NO_BREAST_VERTS_AFTER_DELETE_INVALID = (4,
+                                            "胸部网格结构复杂！移除无效顶点后，无剩余胸部网格。请隐藏或删除无关内容后重试。",
+                                            "胸部网格结构复杂！移除无效顶点后，无剩余胸部网格。请使用自定义（简化），手动测量参数后重试。")
+    # 不对外提示
     NO_BREAST_INNER = (5, "无法获取胸部内侧点！")
-    BREAST_MESH_COMPLEX = (6, "胸部网格结构复杂！请删除无关内容后重试。")
-    BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP = (7, "胸部网格结构复杂！乳首与乳根位置相同。")
-    BREAST_MESH_COMPLEX_NO_UPPER_BUST = (8, "胸部网格结构复杂！无法准确获取上胸围，请删除无关内容后重试。")
-    BREAST_MESH_COMPLEX_NO_UNDER_BUST = (9, "胸部网格结构复杂！无法准确获取下胸围，请删除无关内容后重试。")
-    BUST_DIFF_TOO_LARGE = (10, "胸部网格结构复杂！胸围差过大，请删除无关内容后重试。")
-    BUST_DIFF_NEGATIVE = (11, "胸部网格结构复杂！胸围差为负值，请删除无关内容后重试。")
-    BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS = (12,
-                                                        "胸部网格结构复杂！存在重叠且法向相反的面，请删除无关内容后重试。")
-    BREAST_MESH_COMPLEX_TOO_MANY_UPPER_RINGS = (13, "胸部网格结构复杂，检测到异常数量的上胸围环。请删除无关内容后重试。")
-    BREAST_MESH_COMPLEX_TOO_MANY_UNDER_RINGS = (14, "胸部网格结构复杂，检测到异常数量的下胸围环。请删除无关内容后重试。")
-    BREAST_MESH_COMPLEX_NO_UPPER_RINGS = (15, "胸部网格结构复杂，未检测到上胸围环。请检查后重试。")
-    BREAST_MESH_COMPLEX_NO_UNDER_RINGS = (16, "胸部网格结构复杂，未检测到下胸围环。请检查后重试。")
-    BREAST_MESH_COMPLEX_UPPER_RINGS_MAX_SEARCH = (17, "胸部网格结构复杂，检测到异常数量的上胸围环。请删除无关平面后重试。")
-    BREAST_MESH_COMPLEX_UNDER_RINGS_MAX_SEARCH = (18, "胸部网格结构复杂，检测到异常数量的下胸围环。请删除无关平面后重试。")
+
+    # 素体部分提示，仅用于胸部尺码分析的提示。
+    BREAST_MESH_COMPLEX = (6, "胸部网格结构复杂！请隐藏或删除无关内容后重试。")
+    NIPPLE_ROOT_OVERLAP = (7, "乳首与乳根位置相同。")
+    NO_UPPER_BUST = (8, "胸部网格结构复杂！无法准确获取上胸围，请隐藏或删除无关内容后重试。")
+    NO_UNDER_BUST = (9, "胸部网格结构复杂！无法准确获取下胸围，请隐藏或删除无关内容后重试。")
+    BUST_DIFF_TOO_LARGE = (10, "胸部网格结构复杂！胸围差过大，请隐藏或删除无关内容后重试。")
+    BUST_DIFF_NEGATIVE = (11, "胸部网格结构复杂！胸围差为负值，请隐藏或删除无关内容后重试。")
+    OVERLAPPING_OPPOSITE_NORMALS = (12, "胸部网格结构复杂！存在重叠且法向相反的面，请隐藏或删除无关内容后重试。")
+    TOO_MANY_UPPER_RINGS = (13, "胸部网格结构复杂，检测到异常数量的上胸围环。请隐藏或删除无关内容后重试。")
+    TOO_MANY_UNDER_RINGS = (14, "胸部网格结构复杂，检测到异常数量的下胸围环。请隐藏或删除无关内容后重试。")
+    NO_UPPER_RINGS = (15, "未检测到上胸围环。请检查胸部前后左右的网格是否存在缺省或中断。")
+    NO_UNDER_RINGS = (16, "未检测到下胸围环。请检查胸部前后左右的网格是否存在缺省或中断。")
+    UPPER_RINGS_MAX_SEARCH = (17, "胸部网格结构复杂，检测到异常数量的上胸围环。请删除无关平面后重试。")
+    UNDER_RINGS_MAX_SEARCH = (18, "胸部网格结构复杂，检测到异常数量的下胸围环。请删除无关平面后重试。")
+
     NO_BREAST_LOWER = (19, "胸部结构异常，无法获取胸部下侧点。")
     NO_BREAST_WIDTH = (20, "胸部结构异常，无法获取胸部宽度。")
     ERROR = (99, "未知错误！")
 
-    def __init__(self, code, msg):
+    def __init__(self, code, msg, rgba_msg=None):
         self.code = code
         self.msg = msg
+        # rgba_msg 用于 RGBA 胸部物理移植的提示
+        self.rgba_msg = rgba_msg or msg
+
+    def get_msg(self, rgba=False):
+        return self.rgba_msg if rgba else self.msg
 
 
 @dataclass
@@ -325,7 +343,7 @@ def further_process_for_base_body(source_objs, b_names, result, index, clean_mes
         return
 
     if result.opposite_normals:
-        status = AnalysisStatus.BREAST_MESH_COMPLEX_OVERLAPPING_OPPOSITE_NORMALS
+        status = AnalysisStatus.OVERLAPPING_OPPOSITE_NORMALS
         result.status = status
         result.msg = status.msg
         return
@@ -341,8 +359,8 @@ def further_process_for_base_body(source_objs, b_names, result, index, clean_mes
 
     # 判断乳首与乳根是否重合（例如：莱娅_热力运动），此类情况通常出现在平胸角色
     if (result.nipple_co - result.under_co).length < 1e-6:
-        result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP
-        result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NIPPLE_ROOT_OVERLAP.msg
+        result.status = AnalysisStatus.NIPPLE_ROOT_OVERLAP
+        result.msg = AnalysisStatus.NIPPLE_ROOT_OVERLAP.msg
         return
 
     # 创建临时对象
@@ -448,12 +466,12 @@ def further_process_for_base_body(source_objs, b_names, result, index, clean_mes
 
     # 如果任一上下胸围顶点数小于2，则无法构成边，直接continue
     if len(upper_ring) < 2:
-        result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST
-        result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST.msg
+        result.status = AnalysisStatus.NO_UPPER_BUST
+        result.msg = AnalysisStatus.NO_UPPER_BUST.msg
         return
     if len(under_ring) < 2:
-        result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST
-        result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST.msg
+        result.status = AnalysisStatus.NO_UNDER_BUST
+        result.msg = AnalysisStatus.NO_UNDER_BUST.msg
         return
 
     # 计算上胸围
@@ -466,13 +484,13 @@ def further_process_for_base_body(source_objs, b_names, result, index, clean_mes
 
     # 再次校验，增加健壮性（例如：心夏_鸭子摇滚）
     if not upper_bust:
-        result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST
-        result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_BUST.msg
+        result.status = AnalysisStatus.NO_UPPER_BUST
+        result.msg = AnalysisStatus.NO_UPPER_BUST.msg
         return
 
     if not under_bust:
-        result.status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST
-        result.msg = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_BUST.msg
+        result.status = AnalysisStatus.NO_UNDER_BUST
+        result.msg = AnalysisStatus.NO_UNDER_BUST.msg
         return
 
     # 取消顶点选中
@@ -516,24 +534,24 @@ def get_and_check_rings(tmp_obj, nipple_z, under_z, max_ring_count=MAX_RING_COUN
     """检测环数过多或缺失"""
     upper_rings = get_rings_at_z(tmp_obj, nipple_z, max_ring_count=max_ring_count)
     if upper_rings is None:
-        status = AnalysisStatus.BREAST_MESH_COMPLEX_UPPER_RINGS_MAX_SEARCH
+        status = AnalysisStatus.UPPER_RINGS_MAX_SEARCH
         return None, None, status
     if len(upper_rings) >= max_ring_count:
-        status = AnalysisStatus.BREAST_MESH_COMPLEX_TOO_MANY_UPPER_RINGS
+        status = AnalysisStatus.TOO_MANY_UPPER_RINGS
         return None, None, status
     if len(upper_rings) == 0:
-        status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UPPER_RINGS
+        status = AnalysisStatus.NO_UPPER_RINGS
         return None, None, status
 
     under_rings = get_rings_at_z(tmp_obj, under_z, max_ring_count=max_ring_count)
     if under_rings is None:
-        status = AnalysisStatus.BREAST_MESH_COMPLEX_UNDER_RINGS_MAX_SEARCH
+        status = AnalysisStatus.UNDER_RINGS_MAX_SEARCH
         return None, None, status
     if len(under_rings) >= max_ring_count:
-        status = AnalysisStatus.BREAST_MESH_COMPLEX_TOO_MANY_UNDER_RINGS
+        status = AnalysisStatus.TOO_MANY_UNDER_RINGS
         return None, None, status
     if len(under_rings) == 0:
-        status = AnalysisStatus.BREAST_MESH_COMPLEX_NO_UNDER_RINGS
+        status = AnalysisStatus.NO_UNDER_RINGS
         return None, None, status
 
     return upper_rings, under_rings, None
@@ -2252,7 +2270,7 @@ def has_overlapping_faces_with_opposite_normals(obj_verts_map, face_cache=None):
 
 
 def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None, weight_cache=None,
-                vg_names_src=None):
+                vg_names_src=None, rgba=False):
     """分析胸部尺寸"""
     # 网格对象 -> 胸部范围（高于权重阈值的顶点）
     obj_verts_map = {}
@@ -2298,14 +2316,14 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None, w
         status, boundary, breast_verts, other_island_verts = get_best_island(bm)
         if status in (AnalysisStatus.NO_ISLANDS, AnalysisStatus.NO_BOUNDARY):
             tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
-            return AnalysisResult(status=status, msg=status.msg, threshold=threshold, tmp_obj=tmp_obj)
+            return AnalysisResult(status=status, msg=status.get_msg(rgba), threshold=threshold, tmp_obj=tmp_obj)
 
         # 获取胸部宽度
         positive_x = [v.co.x for v in breast_verts if v.co.x >= 0]
         if not positive_x:
             tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
             return AnalysisResult(status=AnalysisStatus.NO_BREAST_WIDTH,
-                                  msg=AnalysisStatus.NO_BREAST_WIDTH.msg,
+                                  msg=AnalysisStatus.NO_BREAST_WIDTH.get_msg(rgba),
                                   threshold=threshold, tmp_obj=tmp_obj)
         max_x = max(positive_x)
 
@@ -2314,7 +2332,7 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None, w
         if lower is None:
             tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
             return AnalysisResult(status=AnalysisStatus.NO_BREAST_LOWER,
-                                  msg=AnalysisStatus.NO_BREAST_LOWER.msg,
+                                  msg=AnalysisStatus.NO_BREAST_LOWER.get_msg(rgba),
                                   threshold=threshold, tmp_obj=tmp_obj)
         lower_co = lower.co
 
@@ -2323,7 +2341,7 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None, w
                                                          analysis_type)
         if status == AnalysisStatus.NO_BREAST_VERTS_AFTER_DELETE_INVALID:
             tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
-            return AnalysisResult(status=status, msg=status.msg, threshold=threshold, tmp_obj=tmp_obj)
+            return AnalysisResult(status=status, msg=status.get_msg(rgba), threshold=threshold, tmp_obj=tmp_obj)
         nipple_co = nipple.co
 
         # 获取胸部内侧顶点，没有也无所谓
@@ -2338,7 +2356,7 @@ def do_analysis(obj_vgs_map, threshold, index, analysis_type, face_cache=None, w
     if cup == CUP_LIST[-1][1]:
         tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_None"
         return AnalysisResult(status=AnalysisStatus.BUST_DIFF_TOO_LARGE,
-                              msg=AnalysisStatus.BUST_DIFF_TOO_LARGE.msg,
+                              msg=AnalysisStatus.BUST_DIFF_TOO_LARGE.get_msg(rgba),
                               threshold=threshold, tmp_obj=tmp_obj)
 
     cup_inner = None
@@ -2493,7 +2511,7 @@ def batch_do_analysis(obj_vgs_map, analysis_type, vg_names_src=None):
     for index, threshold in enumerate(thresholds):
         result = do_analysis(obj_vgs_map, threshold, index, analysis_type,
                              face_cache=face_cache, weight_cache=weight_cache,
-                             vg_names_src=vg_names_src)
+                             vg_names_src=vg_names_src, rgba=True)
         if result.tmp_obj:
             result.tmp_obj.name = f"{index}_{DEFAULT_TMP_OBJ_NAME}_{threshold}_{result.cup if result.cup else 'None'}"
         results.append(result)
