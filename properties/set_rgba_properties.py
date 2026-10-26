@@ -266,7 +266,7 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
 
     sensitivity: bpy.props.FloatProperty(
         name="灵敏度",
-        description="胸部灵敏度，用于提高幅度较小动作下胸部的响应效果\n调整该值可能会导致开启物理演算后，胸部默认姿态出现向下偏转的情况\n如出现该问题，可将角度限制X的下限调整为0，以避免胸部向下偏转",
+        description="胸部灵敏度，用于提高幅度较小动作下胸部的响应效果\n推荐值为10，可在此基础上微调\n调整该值可能会导致开启物理演算后，胸部默认姿态出现向下偏转的情况\n如出现该问题，可将角度限制X的下限调整为0，以避免胸部向下偏转",
         default=1,
         min=1,
         max=15,
