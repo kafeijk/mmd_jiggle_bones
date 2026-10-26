@@ -433,7 +433,6 @@ class SetRgbaOperator(bpy.types.Operator):
                 return name, "ERROR", err_msg
 
         # 重映射权重
-        # 因为改变了权重分布，所以要在analyze_breast之后执行，否则得到的cup信息并非原始模型的
         # 因为将权重重映射到了1，所以要在set_joint_limits之前进行该操作，避免无法对小于B尺码的模型做优化
         if mode in ["DEFAULT", "CUSTOM_SIMPLIFY"]:
             remap_breast_weights(obj)
