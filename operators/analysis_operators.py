@@ -1238,16 +1238,16 @@ class AnalysisOperator(bpy.types.Operator):
         self.active_object = context.active_object
         self.selected_objects = bpy.context.selected_objects
 
-        # 清理上一次执行时保留的临时对象（在进度条显示之前完成）
-        clean_temp_data([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
-        # 记录分析开始前的数据块，后续只清理本次新增的，避免误删用户数据
-        self.data_snapshot = snapshot_data_blocks()
-
         # 参数校验
         err_msg, self.data = validate_analysis_param(self.active_object, props.extra_bones_str)
         if err_msg:
             self.report({'ERROR'}, err_msg)
             return {'FINISHED'}
+
+        # 清理上一次执行时保留的临时对象（在进度条显示之前完成）
+        clean_temp_data([TMP_COLLECTION_NAME, TMP_ANALYSIS_COLLECTION_NAME])
+        # 记录分析开始前的数据块，后续只清理本次新增的，避免误删用户数据
+        self.data_snapshot = snapshot_data_blocks()
 
         self.initialized = False
         self.thresholds = ANALYSIS_THRESHOLDS
