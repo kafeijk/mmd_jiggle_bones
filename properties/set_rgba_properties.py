@@ -344,13 +344,13 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
         struct = self
         batch = struct.batch
 
-        if self.jiggle_adjustment_mode == "DEFAULT":
-            pass
-        else:
+        if self.jiggle_adjustment_mode != "DEFAULT":
             batch.suffix_type = "RGBA"
 
-        if self.jiggle_adjustment_mode == "CUSTOM_SIMPLIFY":
-            target_props = {"breast_x", "breast_y", "breast_z"}
+        if self.jiggle_adjustment_mode == "DEFAULT":
+            target_props = {"sensitivity"}
+        elif self.jiggle_adjustment_mode == "CUSTOM_SIMPLIFY":
+            target_props = {"breast_x", "breast_y", "breast_z", "sensitivity"}
         elif self.jiggle_adjustment_mode == "CUSTOM":
             target_props = {
                 "limit_lin_x_lower", "limit_lin_x_sync", "limit_lin_x_upper",
@@ -358,7 +358,8 @@ class SetRgbaProperty(bpy.types.PropertyGroup):
                 "limit_lin_z_lower", "limit_lin_z_sync", "limit_lin_z_upper",
                 "limit_ang_x_lower", "limit_ang_x_sync", "limit_ang_x_upper",
                 "limit_ang_y_lower", "limit_ang_y_sync", "limit_ang_y_upper",
-                "limit_ang_z_lower", "limit_ang_z_sync", "limit_ang_z_upper"}
+                "limit_ang_z_lower", "limit_ang_z_sync", "limit_ang_z_upper",
+                "sensitivity"}
         else:
             return
 
