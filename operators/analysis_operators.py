@@ -38,7 +38,7 @@ class AnalysisStatus(Enum):
     OK = (0, "")
     NO_BREAST_VERTS = (1, "源模型中胸部顶点权重均为0，无法获取有效胸部网格范围。\n"
                           "如果胸部本身可以活动，请使用骨骼扩展功能补充对应骨骼后重试。")
-    NO_ISLANDS = (2, "未找到胸部网格松散块！")
+    NO_ISLANDS = (2, "胸部网格结构复杂！未找到胸部网格松散块！请删除无关内容后重试。")
     NO_BOUNDARY = (3, "未找到胸部网格松散块的边界顶点！")
     NO_BREAST_VERTS_AFTER_DELETE_INVALID = (4, "胸部网格结构复杂！移除无效顶点后，无剩余胸部网格。")
     NO_BREAST_INNER = (5, "无法获取胸部内侧点！")
