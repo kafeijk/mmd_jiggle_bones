@@ -1600,10 +1600,15 @@ def remove_tmp_obj(results, remove_tmp, analysis_type, copied_source_objs):
             if collection is not None:
                 bpy.data.collections.remove(collection)
 
-        # 恢复临时集合显示（仅当集合存在时，避免创建空集合）
+        # 恢复临时集合显示
+        # 集合为空说明本次没有任何可查看的临时对象
+        # （例如所有阈值都在创建临时对象前就失败），直接删掉，避免报错后留下空集合
         tmp_col = bpy.data.collections.get(TMP_ANALYSIS_COLLECTION_NAME)
-        if tmp_col is not None and tmp_col.name not in bpy.context.scene.collection.children:
-            bpy.context.scene.collection.children.link(tmp_col)
+        if tmp_col is not None:
+            if not tmp_col.objects:
+                bpy.data.collections.remove(tmp_col)
+            elif tmp_col.name not in bpy.context.scene.collection.children:
+                bpy.context.scene.collection.children.link(tmp_col)
 
     for obj in copied_source_objs:
         bpy.data.objects.remove(obj, do_unlink=True)
