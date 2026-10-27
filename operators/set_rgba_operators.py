@@ -923,7 +923,7 @@ def remove_breast_bones(root, armature, rb_parent, kept_joints, extra_bones):
     bpy.ops.object.mode_set(mode='OBJECT')
 
     # 清理无效刚体Joint
-    remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints)
+    remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints, breast_names)
     return b_names_l, b_names_r
 
 
@@ -1118,7 +1118,7 @@ def filter_horizontal_bones(armature, breast_bones):
     return filtered_bones
 
 
-def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):
+def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints, deleted_breast_bone_names):
     """清理无效刚体Joint"""
     active_object = bpy.context.active_object
     original_mode = active_object.mode if active_object is not None else None
@@ -1164,6 +1164,11 @@ def remove_invalid_rigidbody_joint(root, rbs_to_remove, kept_joints):
             continue
         # 关联骨骼不存在则删除这个刚体
         if rigidbody.name in rbs_to_remove:
+            rbs_to_delete.add(rigidbody)
+            continue
+        # 关联骨骼为被删除的骨骼时，移除这个刚体
+        # 有些模型骨骼符合命名但关联的刚体不符合命名，会导致模型残留刚体且不随角色运动
+        if rigidbody.mmd_rigid.bone and rigidbody.mmd_rigid.bone in deleted_breast_bone_names:
             rbs_to_delete.add(rigidbody)
             continue
         # 当刚体没有关联骨骼时，刚体可能会被Joint关联，所以不会导致问题，因此这种情况不处理，取决于模型本身

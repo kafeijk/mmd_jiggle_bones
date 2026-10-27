@@ -400,13 +400,24 @@ def get_breast_bones_map(armatures, extra_bones):
     return breast_bones_map
 
 
-# 少女前线2单独校验
+# 少女前线2单独校验（及其它含潜在规律的模型）
 def check_girlsfrontline_breast_bones_and_rbs(b_name):
     if "chest_r" in b_name.lower():
         return True
     if "chest_l" in b_name.lower():
         return True
-    if "bone" in b_name.lower() and "ches" in b_name.lower():
+    if "bone" in b_name.lower() and "ches" in b_name.lower():   # bone breast的组合在崩坏3可指代胸饰，这里不校验
+        return True
+    if "上半身2chest" in b_name.lower():
+        return True
+    # 鸣潮、战双帕弥什
+    if re.search(
+            r'^chest'
+            r'(_*[lr]_*\d{2,3}|_*\d{2,3}_*[lr])'
+            r'$',
+            b_name,
+            re.IGNORECASE
+    ):
         return True
     return False
 
