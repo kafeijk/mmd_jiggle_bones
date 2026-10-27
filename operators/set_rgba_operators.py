@@ -21,7 +21,7 @@ from ..mmd_utils import FnModel
 from ..constants import (
     ADDON_ID_PREFIX,
     BREAST_BL_NAME_L, BREAST_BL_NAME_R, BREAST_JP_NAME_L, BREAST_JP_NAME_R,
-    BREAST_RB_PATTERN, COLLISION_SUFFIX, CUP_LIST, INVALID_CHARS, LIMB_RB_GROUP,
+    BREAST_RB_PATTERN, COLLISION_SUFFIX, CUP_LIST, EXTRA_BONE_HINT, INVALID_CHARS, LIMB_RB_GROUP,
     LIMB_RB_NAMES, MODEL_SCALE, NECK_NAME, ORDER_PREFIX_BASE, ORDER_PREFIX_START,
     ORDER_PREFIX_WIDTH, PHYSICAL_FRAME_NAME, RB_JOINT_PREFIX_REGEXP,
     RGBA_JOINT_NAMES, RGBA_RB2_NAMES, RGBA_RB_NAMES, SENSITIVITY_RB_NAMES,
@@ -328,7 +328,7 @@ class SetRgbaOperator(bpy.types.Operator):
         # 获取源模型胸部骨骼列表
         breast_bones_map = get_breast_bones_map(armature, props.extra_bones_str)
         if not breast_bones_map:
-            return name, "ERROR", "源模型中未找到胸部骨骼"
+            return name, "ERROR", f"源模型中未找到胸部骨骼！{EXTRA_BONE_HINT}"
         breast_bones = next(iter(breast_bones_map.values()))
         breast_names = [b.name for b in breast_bones]
 

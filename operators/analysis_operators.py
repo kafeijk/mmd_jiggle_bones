@@ -16,7 +16,7 @@ from ..constants import (
     ADDON_ID_PREFIX,
     ANALYSIS_PREPROCESS_TEXT, ANALYSIS_THRESHOLDS, BUST_LINE_MAX_ITER, COORD_ROUND_DIGITS,
     BASEBODY_TMP_OBJ_NAME, BREAST_BL_NAME_L, BREAST_BL_NAME_R, CUP_LIST,
-    DEFAULT_TMP_OBJ_NAME, LINKED_FACES_THRESHOLD, MAX_RING_COUNT,
+    DEFAULT_TMP_OBJ_NAME, EXTRA_BONE_HINT, LINKED_FACES_THRESHOLD, MAX_RING_COUNT,
     MAX_SEARCH_COUNT, STANDARD_CUP_LIST, TASK_ANALYSIS, TIMER_INTERVAL,
     TMP_ANALYSIS_COLLECTION_NAME, TMP_COLLECTION_NAME, TMP_OBJ_PROP,
 )
@@ -38,7 +38,7 @@ class AnalysisStatus(Enum):
     OK = (0, "")
 
     # 通用部分提示，按使用场景分为胸部尺码分析与RGBA物理移植的提示。
-    NO_BREAST_VERTS = (1, "源模型中胸部顶点权重均为0，无法获取有效胸部网格范围。\n如果胸部本身可以活动，请使用骨骼扩展功能补充对应骨骼后重试。")
+    NO_BREAST_VERTS = (1, f"源模型中胸部顶点权重均为0，无法获取有效胸部网格范围。\n{EXTRA_BONE_HINT}")
     # 实测中暂未发现
     NO_ISLANDS = (2,
                   "胸部网格结构复杂！未找到胸部网格松散块！",
@@ -1728,7 +1728,7 @@ def validate_analysis_param(active_object, extra_bones):
     # 胸部骨骼
     breast_bones_map = get_breast_bones_map(source_armatures, extra_bones)
     if not breast_bones_map:
-        return "源模型中未找到胸部骨骼！", None
+        return f"源模型中未找到胸部骨骼！{EXTRA_BONE_HINT}", None
 
     # 左右骨骼拆分
     b_names = []
