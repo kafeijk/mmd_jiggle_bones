@@ -1,11 +1,25 @@
-import addon_utils
 import bpy
 
+from ..constants import PANEL_ID_PREFIX, TASK_ANALYSIS, TASK_SET_RGBA
 from ..operators.set_rgba_operators import SetRgbaOperator
+from ..operators.analysis_operators import AnalysisOperator
+from ..operators.utility_operators import GetSelectedBoneNameOperator
+from ..properties.set_rgba_properties import remember_collision_group
+from ..utils import get_addon_version, get_batch_progress
+
+_addon_version = None
+
+
+def _get_addon_version():
+    """获取并缓存插件版本号，避免每次重绘都扫描全部插件"""
+    global _addon_version
+    if _addon_version is None:
+        _addon_version = get_addon_version("MMD Jiggle Bones")
+    return _addon_version
 
 
 class RGBAPanel(bpy.types.Panel):
-    bl_idname = "RGBA_PT_rgba"
+    bl_idname = f"{PANEL_ID_PREFIX}_rgba"
     bl_label = "RGBA式胸部物理移植"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'  # N面板
@@ -13,9 +27,12 @@ class RGBAPanel(bpy.types.Panel):
     bl_order = 0
 
     def draw(self, context):
+
         scene = context.scene
         props = scene.mmd_jiggle_tools_set_rgba
         batch = props.batch
+        # 记录修改前的碰撞组值，供 skip_13 判断用户调整方向（上/下调到 13 时取值不同）
+        remember_collision_group(props)
 
         layout = self.layout
         layout.use_property_split = True
@@ -24,64 +41,136 @@ class RGBAPanel(bpy.types.Panel):
 
         col.prop(props, "jiggle_adjustment_mode")
 
-        if props.jiggle_adjustment_mode == "DEFAULT":
-            col.prop(props, "factor")
-        else:
-            row1 = col.row(align=True)
-            row1.prop(props, "limit_lin_x_lower",text = "移动限制 X")
-            row1.prop(props, "limit_lin_x_sync", text="", icon="LINKED" if props.limit_lin_x_sync else "UNLINKED", emboss=True)
-            row1.prop(props, "limit_lin_x_upper",text = "")
-
-            row1 = col.row(align=True)
-            row1.prop(props, "limit_lin_y_lower",text = "Y")
-            row1.prop(props, "limit_lin_y_sync", text="", icon="LINKED" if props.limit_lin_y_sync else "UNLINKED", emboss=True)
-            row1.prop(props, "limit_lin_y_upper",text = "")
-
-            row1 = col.row(align=True)
-            row1.prop(props, "limit_lin_z_lower",text = "Z")
-            row1.prop(props, "limit_lin_z_sync", text="", icon="LINKED" if props.limit_lin_z_sync else "UNLINKED", emboss=True)
-            row1.prop(props, "limit_lin_z_upper",text = "")
-
-            row1 = col.row(align=True)
-            row1.prop(props, "limit_ang_x_lower", text="角度限制 X")
-            row1.prop(props, "limit_ang_x_sync", text="", icon="LINKED" if props.limit_ang_x_sync else "UNLINKED", emboss=True)
-            row1.prop(props, "limit_ang_x_upper", text="")
-
-            row1 = col.row(align=True)
-            row1.prop(props, "limit_ang_y_lower", text="Y")
-            row1.prop(props, "limit_ang_y_sync", text="", icon="LINKED" if props.limit_ang_y_sync else "UNLINKED", emboss=True)
-            row1.prop(props, "limit_ang_y_upper", text="")
-
-            row1 = col.row(align=True)
-            row1.prop(props, "limit_ang_z_lower", text="Z")
-            row1.prop(props, "limit_ang_z_sync", text="", icon="LINKED" if props.limit_ang_z_sync else "UNLINKED", emboss=True)
-            row1.prop(props, "limit_ang_z_upper", text="")
-
-
-
         col.prop(props, "collision")
         col.prop(props, "rb_scale_factor")
         col.prop(props, "collision_group_number")
+
+        extra_row = col.row()
+        extra_row.prop(props, "extra_bones_str")
+        extra_row.operator(GetSelectedBoneNameOperator.bl_idname, text="", icon="MOUSE_LMB")
+
+        if props.jiggle_adjustment_mode == "DEFAULT":
+            pass
+        elif props.jiggle_adjustment_mode == "CUSTOM_SIMPLIFY":
+            breast_box = col.box()
+            breast_col = breast_box.column()
+            breast_col.prop(props, "breast_x")
+            breast_col.prop(props, "breast_y")
+            breast_col.prop(props, "breast_z")
+        else:
+            breast_box = col.box()
+            breast_col = breast_box.column()
+            row1 = breast_col.row(align=True)
+            row1.prop(props, "limit_lin_x_lower", text="移动限制 X")
+            row1.prop(props, "limit_lin_x_sync", text="", icon="LINKED" if props.limit_lin_x_sync else "UNLINKED",
+                      emboss=True)
+            row1.prop(props, "limit_lin_x_upper", text="")
+
+            row1 = breast_col.row(align=True)
+            row1.prop(props, "limit_lin_y_lower", text="Y")
+            row1.prop(props, "limit_lin_y_sync", text="", icon="LINKED" if props.limit_lin_y_sync else "UNLINKED",
+                      emboss=True)
+            row1.prop(props, "limit_lin_y_upper", text="")
+
+            row1 = breast_col.row(align=True)
+            row1.prop(props, "limit_lin_z_lower", text="Z")
+            row1.prop(props, "limit_lin_z_sync", text="", icon="LINKED" if props.limit_lin_z_sync else "UNLINKED",
+                      emboss=True)
+            row1.prop(props, "limit_lin_z_upper", text="")
+
+            row1 = breast_col.row(align=True)
+            row1.prop(props, "limit_ang_x_lower", text="角度限制 X")
+            row1.prop(props, "limit_ang_x_sync", text="", icon="LINKED" if props.limit_ang_x_sync else "UNLINKED",
+                      emboss=True)
+            row1.prop(props, "limit_ang_x_upper", text="")
+
+            row1 = breast_col.row(align=True)
+            row1.prop(props, "limit_ang_y_lower", text="Y")
+            row1.prop(props, "limit_ang_y_sync", text="", icon="LINKED" if props.limit_ang_y_sync else "UNLINKED",
+                      emboss=True)
+            row1.prop(props, "limit_ang_y_upper", text="")
+
+            row1 = breast_col.row(align=True)
+            row1.prop(props, "limit_ang_z_lower", text="Z")
+            row1.prop(props, "limit_ang_z_sync", text="", icon="LINKED" if props.limit_ang_z_sync else "UNLINKED",
+                      emboss=True)
+            row1.prop(props, "limit_ang_z_upper", text="")
+
+            row2 = breast_col.row(align=True)
+            row2.prop(props, "sensitivity")
 
         batch_box = col.box()
         batch_ui = batch_box.column()
         batch_ui.prop(batch, "directory")
         batch_ui.prop(batch, "search_strategy")
         batch_ui.prop(batch, "threshold")
-        batch_ui.prop(batch, "suffix")
+
+        batch_ui2 = batch_ui.column()
+        batch_ui2.prop(batch, "suffix_type")
+        if props.jiggle_adjustment_mode == "DEFAULT":
+            batch_ui2.enabled = True
+        else:
+            batch_ui2.enabled = False
         batch_ui.prop(batch, "conflict_strategy")
 
+        row = col.row(align=True)
+        row.operator(SetRgbaOperator.bl_idname, text=SetRgbaOperator.bl_label)
 
-        col.operator(SetRgbaOperator.bl_idname, text=SetRgbaOperator.bl_label)
+        progress = get_batch_progress(TASK_SET_RGBA)
+        if progress["active"]:
+            layout.label(text=progress["text"])
+
+            # 进度条，Blender 4.0及以上生效
+            blender_version = bpy.app.version
+            if blender_version >= (4, 0, 0):
+                layout.progress(factor=progress["factor"], type='BAR',
+                                text=f"{progress['current']}/{progress['total']}")
+
+
+class AnalysisPanel(bpy.types.Panel):
+    bl_idname = f"{PANEL_ID_PREFIX}_analysis"
+    bl_label = "胸部尺码分析"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'MMD Jiggle'  # 追加到其它面板或独自一个面板
+    bl_order = 1
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        scene = context.scene
+        props = scene.mmd_jiggle_tools_analysis
+
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        col = layout.column()
+
+        col.prop(props, "type")
+
+        extra_row = col.row()
+        extra_row.prop(props, "extra_bones_str")
+        extra_row.operator(GetSelectedBoneNameOperator.bl_idname, text="", icon="MOUSE_LMB")
+
+        col.prop(props, "remove_tmp")
+        col.operator(AnalysisOperator.bl_idname, text=AnalysisOperator.bl_label)
+
+        progress = get_batch_progress(TASK_ANALYSIS)
+        if progress["active"]:
+            # 进度条，Blender 4.0及以上生效
+            blender_version = bpy.app.version
+            if blender_version >= (4, 0, 0):
+                layout.progress(factor=progress["factor"], type='BAR', text=progress["text"])
+            else:
+                layout.label(text=progress["text"])
 
 
 class AboutPanel(bpy.types.Panel):
-    bl_idname = "RGBA_PT_about"
+    bl_idname = f"{PANEL_ID_PREFIX}_about"
     bl_label = "About"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'  # N面板
     bl_category = 'MMD Jiggle'  # 追加到其它面板或独自一个面板
-    bl_order = 1
+    bl_order = 2
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
@@ -91,7 +180,7 @@ class AboutPanel(bpy.types.Panel):
         col = layout.column(align=True)
 
         # 版本号
-        col.label(
-            text='版本号：' + str([addon.bl_info.get('version', (-1, -1, -1)) for addon in addon_utils.modules() if
-                                  addon.bl_info['name'] == 'mmd_jiggle_bones'][0]))
+        version = _get_addon_version()
+        version_text = ".".join(str(v) for v in version) if version != (-1, -1, -1) else "未知"
+        col.label(text=f"版本号：{version_text}")
         col.label(text='作者：KafeiMMD')

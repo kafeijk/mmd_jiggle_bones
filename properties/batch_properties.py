@@ -17,18 +17,27 @@ class BatchProperty(bpy.types.PropertyGroup):
     )
     conflict_strategy: bpy.props.EnumProperty(
         name="冲突时",
-        description="当模型目录中已存在由插件生成的模型文件时，如何进行后续操作",
+        description="当模型目录中已存在由插件生成的模型文件时（以名称含「RGBA」为标识），如何进行后续操作",
         items=[
             ("SKIP", "跳过", "忽略对应的源模型文件，不再执行后续操作"),
             ("RE_GENERATE", "重新生成", "生成一个新的模型文件，并保留原有文件")
         ],
         default="RE_GENERATE"
     )
+    # 名称标识，固定为RGBA不对外展示
     suffix: bpy.props.StringProperty(
         name="名称后缀",
         description="在源文件名的基础上，为输出文件添加的名称后缀",
         default='RGBA',
         maxlen=50,  # 防止用户随意输入
+    )
+    suffix_type: bpy.props.EnumProperty(
+        name="名称后缀",
+        description="在源文件名的基础上，为输出文件添加的名称后缀",
+        items=[
+            ("RGBA", "RGBA", "在原文件名称后添加「RGBA」标识"),
+            ("RGBA_CUP", "RGBA + 尺码", "在原文件名称后添加「RGBA」标识，并在其后追加模型尺码信息"),
+        ],
     )
     search_strategy: bpy.props.EnumProperty(
         name="检索模式",

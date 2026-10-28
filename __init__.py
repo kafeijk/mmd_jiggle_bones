@@ -9,10 +9,10 @@ from ...common.i18n.i18n import load_dictionary
 
 # Add-on info
 bl_info = {
-    "name": "mmd_jiggle_bones",
+    "name": "MMD Jiggle Bones",
     "author": "来杯咖啡再说",
     "blender":(3, 0, 0),
-    "version": (1, 1, 0),
+    "version": (2, 0, 0),
     "description": "Addon for replacing model breast physics",
     "category": "3D View"
 }
