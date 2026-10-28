@@ -216,10 +216,31 @@ def purge_new_orphan_data(snapshot):
     if not snapshot:
         return
 
+    shape_key_owners = None
+
     for name, before in snapshot.items():
         blocks = getattr(bpy.data, name)
         for block in list(blocks):
             if block.as_pointer() in before:
+                continue
+            # 形态键集合没有 remove()（4.5 等版本），且失去网格后 users 仍可能为 1，
+            # 因此按“是否仍被网格/曲线/晶格引用”判断，用 batch_remove 清理
+            if name == "shape_keys":
+                if shape_key_owners is None:
+                    shape_key_owners = set()
+                    for owner_type in ("meshes", "curves", "lattices"):
+                        if not hasattr(bpy.data, owner_type):
+                            continue
+                        for owner in getattr(bpy.data, owner_type):
+                            shape_keys = getattr(owner, "shape_keys", None)
+                            if shape_keys is not None:
+                                shape_key_owners.add(shape_keys.as_pointer())
+                if block.as_pointer() in shape_key_owners:
+                    continue
+                try:
+                    bpy.data.batch_remove([block])
+                except Exception:
+                    pass
                 continue
             # 本次操作新增的文本均为导入产物，直接删除（Text 默认带 fake user）
             if name == "texts":
