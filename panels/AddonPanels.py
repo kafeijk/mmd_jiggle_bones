@@ -14,7 +14,7 @@ def _get_addon_version():
     """获取并缓存插件版本号，避免每次重绘都扫描全部插件"""
     global _addon_version
     if _addon_version is None:
-        _addon_version = get_addon_version("mmd_jiggle_bones")
+        _addon_version = get_addon_version("MMD Jiggle Bones")
     return _addon_version
 
 
